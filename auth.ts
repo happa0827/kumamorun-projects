@@ -29,5 +29,5 @@ export default defineAuth(({ defaults, env }) => ({
     enabled: true,
     minPasswordLength: 8,
   },
-  plugins: [passkey({ rpName: "くまもるん" })],
+  plugins: [passkey({ rpName: "くまもーるん" })],
 }));

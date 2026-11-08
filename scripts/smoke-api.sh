@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# アプリ向け API の通し確認。ローカルの void dev に対して流す（本番には向けない）。
+#   BASE=http://localhost:5173 bash scripts/smoke-api.sh
+# 毎回、新しいアカウントを作る。期待と違う行には NG が付き、最後に件数を出す。
+set -u
+B=${BASE:-http://localhost:5173}
+case "$B" in http://localhost*|http://127.0.0.1*) ;; *) echo "ローカルだけで使ってください: $B" >&2; exit 2 ;; esac
+JAR=$(mktemp); trap 'rm -f "$JAR"' EXIT
+EMAIL="smoke-$(date +%s%N)@example.com"
+H=(-H 'Content-Type: application/json' -H "Origin: $B")
+FAIL=0
+
+# expect <期待する状態> <説明> curl の引数…
+expect() {
+  local want=$1 what=$2; shift 2
+  local out code
+  out=$(curl -s -w '\n%{http_code}' "$@"); code=${out##*$'\n'}; BODY=${out%$'\n'*}
+  if [ "$code" = "$want" ]; then echo "ok  $code $what"; else echo "NG  $code（期待 $want） $what: ${BODY:0:200}"; FAIL=$((FAIL+1)); fi
+}
+api() { local m=$1 p=$2; shift 2; curl -s "${H[@]}" -H "Authorization: Bearer $TOKEN" -X "$m" "$B/api/app/v1$p" "$@"; }
+eapi() { local want=$1 what=$2 m=$3 p=$4; shift 4; expect "$want" "$what" "${H[@]}" -H "Authorization: Bearer $TOKEN" -X "$m" "$B/api/app/v1$p" "$@"; }
+check() { if jq -e "$2" <<<"$BODY" >/dev/null; then echo "ok      $1"; else echo "NG      $1: ${BODY:0:300}"; FAIL=$((FAIL+1)); fi; }
+
+echo "== 認証"
+expect 200 "登録" -c "$JAR" -b "$JAR" "${H[@]}" -X POST "$B/api/auth/sign-up/email" -d "{\"email\":\"$EMAIL\",\"password\":\"password-123\",\"name\":\"smoke\"}"
+expect 401 "間違ったパスワード" "${H[@]}" -X POST "$B/api/auth/sign-in/email" -d "{\"email\":\"$EMAIL\",\"password\":\"wrong-pass-1\"}"
+expect 401 "ログインなしのコード発行" "${H[@]}" -X POST "$B/api/login-code"
+
+echo "== ディープリンクのコード交換"
+expect 200 "コード発行" -b "$JAR" "${H[@]}" -X POST "$B/api/login-code"
+CODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+expect 200 "交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$CODE\",\"deviceName\":\"SMOKE-PC\"}"
+TOKEN=$(jq -r .token <<<"$BODY")
+expect 401 "同じコードの2回目" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$CODE\",\"deviceName\":\"SMOKE-PC\"}"
+expect 422 "形が不正な交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d '{"code":""}'
+
+echo "== 取り込みと同期"
+eapi 200 "空のアカウントの同期" GET /sync
+check "初期値" '.restrictions == null and .daily == null and .history == {} and .stage == 0 and .flowers == 0'
+IMPORT='{"daily":{"date":"2026-11-08","plays":3,"failures":1},"history":{"2026-11-01":{"plays":9,"failures":9},"2026-11-02":{"plays":1,"failures":0},"2026-11-03":{"plays":1,"failures":0},"2026-11-04":{"plays":1,"failures":0},"2026-11-05":{"plays":1,"failures":0},"2026-11-06":{"plays":1,"failures":0},"2026-11-07":{"plays":2,"failures":0},"2026-11-08":{"plays":0,"failures":0}},"stage":4,"flowers":7,"restrictions":{"weekday":{"lunchStart":"12:00","lunchEnd":"13:00","endTime":"22:00"}}}'
+eapi 422 "段階 6 の取り込み" POST /import -d "$(jq -c '.stage = 6' <<<"$IMPORT")"
+eapi 200 "取り込み" POST /import -d "$IMPORT"
+check "取り込んだ値（daily が history より優先、8日目は捨てる）" '.stage == 4 and .flowers == 7 and .daily == {"date":"2026-11-08","plays":3,"failures":1} and (.history | length) == 7 and .history["2026-11-01"] == null and .restrictions.weekday.endTime == "22:00"'
+eapi 409 "2回目の取り込み" POST /import -d "$IMPORT"
+
+echo "== 設定と記録"
+eapi 204 "設定の保存" PUT /settings -d '{"restrictions":{"weekday":{"endTime":"21:00"}}}'
+eapi 422 "配列の設定" PUT /settings -d '{"restrictions":[1]}'
+eapi 204 "記録の保存（翌日）" PUT /days -d '{"daily":{"date":"2026-11-09","plays":1,"failures":0},"history":{"2026-11-08":{"plays":5,"failures":1}}}'
+eapi 422 "日付の形が不正" PUT /days -d '{"daily":{"date":"11/09","plays":1,"failures":0},"history":{}}'
+eapi 422 "負の回数" PUT /days -d '{"daily":null,"history":{"2026-11-09":{"plays":-1,"failures":0}}}'
+eapi 200 "同期" GET /sync
+check "設定と記録が反映、古い日は消える" '.restrictions == {"weekday":{"endTime":"21:00"}} and .daily.date == "2026-11-09" and .history["2026-11-08"].plays == 5 and (.history | length) == 7 and .history["2026-11-02"] == null'
+
+echo "== 進化"
+eapi 200 "成長 4→5" POST /evolve -d '{"expectedStage":4,"nextStage":5,"flowersToAdd":0}'
+eapi 200 "開花（夜桜で +2）" POST /evolve -d '{"expectedStage":5,"nextStage":0,"flowersToAdd":2}'
+check "段階 0、花 9" '.stage == 0 and .flowers == 9'
+eapi 409 "同じ開花の再送" POST /evolve -d '{"expectedStage":5,"nextStage":0,"flowersToAdd":1}'
+check "今の値が添えられる" '.current == {"stage":0,"flowers":9}'
+eapi 422 "段階を飛ばす" POST /evolve -d '{"expectedStage":0,"nextStage":2,"flowersToAdd":0}'
+eapi 422 "開花で +3" POST /evolve -d '{"expectedStage":5,"nextStage":0,"flowersToAdd":3}'
+echo "-- 同時に10回の成長（成功は1回だけ）"
+RESULTS=$(for i in $(seq 10); do curl -s -o /dev/null -w '%{http_code}\n' "${H[@]}" -H "Authorization: Bearer $TOKEN" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":0,"nextStage":1,"flowersToAdd":0}' & done; wait)
+OK=$(grep -c '^200$' <<<"$RESULTS"); CONFLICT=$(grep -c '^409$' <<<"$RESULTS")
+if [ "$OK" = 1 ] && [ "$CONFLICT" = 9 ]; then echo "ok      200 が1回、409 が9回"; else echo "NG      200 が $OK 回、409 が $CONFLICT 回"; FAIL=$((FAIL+1)); fi
+
+echo "== ライブ状況"
+LIVE='{"keeping":true,"phase":"play","label":"遊び","remainingSec":600,"startedAt":1794100000000,"duration":900,"running":true,"startBlocked":false,"blockReason":null,"daily":{"date":"2026-11-09","plays":1,"failures":0},"week":[{"date":"2026-11-09","plays":1,"failures":0,"success":true}]}'
+expect 200 "書く前の状況" -b "$JAR" "$B/api/status"
+check "停止" '.appRunning == false and .status == null'
+eapi 200 "ライブ状況を書く" PUT /live-status -d "$LIVE"
+eapi 422 "phase が不正" PUT /live-status -d "$(jq -c '.phase = "dancing"' <<<"$LIVE")"
+eapi 422 "キーが足りない" PUT /live-status -d '{"phase":"play"}'
+expect 200 "サイトから読む" -b "$JAR" "$B/api/status"
+check "動作中、本文がそのまま" '.appRunning == true and .status.phase == "play" and .status.label == "遊び" and (.updatedAt | type) == "number"'
+eapi 204 "オフラインを明示" POST /live-status/offline
+expect 200 "サイトから読む" -b "$JAR" "$B/api/status"
+check "すぐに停止、本文は残る" '.appRunning == false and .status.phase == "offline" and .status.label == "遊び"'
+expect 401 "ログインなしの状況" "$B/api/status"
+
+echo "== 端末の失効"
+expect 200 "2台目のコード" -b "$JAR" "${H[@]}" -X POST "$B/api/login-code"
+CODE2=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+expect 200 "2台目の交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$CODE2\",\"deviceName\":\"SMOKE-LAPTOP\"}"
+TOKEN2=$(jq -r .token <<<"$BODY")
+DEVICE2=$(curl -s -b "$JAR" "$B/settings" | grep -o 'data-device-id="[^"]*"><div><strong>SMOKE-LAPTOP<' | cut -d'"' -f2)
+if [ -n "$DEVICE2" ]; then
+  expect 204 "サイトから失効" -b "$JAR" "${H[@]}" -X DELETE "$B/api/devices/$DEVICE2"
+  expect 404 "2回目の失効" -b "$JAR" "${H[@]}" -X DELETE "$B/api/devices/$DEVICE2"
+  expect 401 "失効した端末" -H "Authorization: Bearer $TOKEN2" "$B/api/app/v1/sync"
+  expect 200 "失効していない端末" -H "Authorization: Bearer $TOKEN" "$B/api/app/v1/sync"
+else
+  echo "NG      端末の一覧から ID を読めない"; FAIL=$((FAIL+1))
+fi
+
+echo "== ログアウト"
+eapi 204 "ログアウト" POST /logout
+eapi 401 "ログアウト後" GET /sync
+
+echo
+if [ "$FAIL" = 0 ]; then echo "すべて通りました"; else echo "NG が $FAIL 件"; exit 1; fi

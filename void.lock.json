@@ -3,7 +3,15 @@
   "source": {},
   "resolved": {
     "account_id": "4ad545133ba79fd6ea8508770b8cceb3",
-    "compatibility_date": "2026-02-24"
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "kumamorun-project-db",
+        "database_id": "1ab2af78-443b-4fa9-829d-d3b756b2de9d",
+        "migrations_dir": "./db/migrations"
+      }
+    ],
+    "name": "kumamorun-project"
   },
-  "text": "{\n  \"account_id\": \"4ad545133ba79fd6ea8508770b8cceb3\",\n  \"compatibility_date\": \"2026-02-24\"\n}\n"
+  "text": "{\n  \"account_id\": \"4ad545133ba79fd6ea8508770b8cceb3\",\n  \"d1_databases\": [\n    {\n      \"binding\": \"DB\",\n      \"database_name\": \"kumamorun-project-db\",\n      \"database_id\": \"1ab2af78-443b-4fa9-829d-d3b756b2de9d\",\n      \"migrations_dir\": \"./db/migrations\"\n    }\n  ],\n  \"name\": \"kumamorun-project\"\n}\n"
 }

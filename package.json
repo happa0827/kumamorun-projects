@@ -16,7 +16,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3"
   },
-  "name": "kumamorun-void",
+  "name": "kumamorun-project",
   "private": true,
   "type": "module",
   "scripts": {

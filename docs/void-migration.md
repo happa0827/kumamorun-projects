@@ -100,24 +100,48 @@ startBlocked, blockReason, daily, week
 
 | メソッドと経路 | 内容 |
 |---|---|
-| `POST /exchange` | `{ code, deviceName }` を受け、`{ token }` を返す。コードは一度しか使えない。 |
-| `POST /logout` | この端末のトークンを失効する。 |
-| `GET /sync` | 設定、直近7日の記録、進化段階、花の数をまとめて返す。 |
-| `PUT /settings` | `{ restrictions }` を保存する。 |
-| `PUT /days` | `{ daily, history }` を保存する。 |
+| `POST /exchange` | `{ code, deviceName }` を受け、`{ token }` を返す。コードは一度しか使えず、5分で失効する。 |
+| `POST /logout` | この端末のトークンを失効する。`204`。 |
+| `GET /sync` | 設定、直近7日の記録、進化段階、花の数をまとめて返す。下記。 |
+| `PUT /settings` | `{ restrictions }` を保存する（後勝ち）。`204`。 |
+| `PUT /days` | `{ daily, history }` を保存する。日付ごとに後勝ちで書き、新しい7日より古い行は消す。`204`。 |
 | `POST /evolve` | `{ expectedStage, nextStage, flowersToAdd }`。下記。 |
-| `PUT /live-status` | ライブ状況を書く。`updated_at` はサーバーが入れる。 |
-| `POST /live-status/offline` | 正常終了とログアウトで、オフラインを明示する。 |
-| `POST /import` | 初回ログインで、ローカルのデータ（記録、進化、花、設定）を取り込む。空のアカウントにだけ書く。 |
+| `PUT /live-status` | ライブ状況を書く。`updated_at` はサーバーが入れる。`{ serverTime }` を返す。 |
+| `POST /live-status/offline` | 正常終了とログアウトで、オフラインを明示する。最後の本文は残し、`phase` だけ `offline` にする。`204`。 |
+| `POST /import` | 初回ログインで、ローカルのデータを取り込む。下記。 |
+
+### 形
+
+時刻は Unix ミリ秒。日付は端末のローカル日付の `"YYYY-MM-DD"`。
+
+```ts
+type Daily   = { date: string; plays: number; failures: number };          // 回数は 0 以上の整数
+type History = Record<string, { plays: number; failures: number }>;        // キーは日付
+
+// GET /sync、POST /import の応答
+{ restrictions: object | null, daily: Daily | null, history: History,
+  stage: number, flowers: number, serverTime: number }
+// daily は保存されている最新の日付の記録。history は新しい順に最大7日。
+
+// PUT /days
+{ daily: Daily | null, history: History }   // 同じ日付は daily を優先する
+
+// POST /import
+{ daily: Daily | null, history: History, stage: 0..5, flowers: number, restrictions: object | null }
+```
+
+- `restrictions` の中身は今の `{ weekday: { lunchStart, lunchEnd, endTime }, weekend: {…} }`。サーバーはオブジェクトであることと、大きさ（8KB 以下）だけを見る。
+- `PUT /live-status` の本文は「ライブ状況の形」のキーをすべて持つ。`appRunning` と `updatedAt` は送らない（来ても捨てる）。`phase: "offline"` を送ると停止として書く。
+- `/import` は、進化、設定、記録のどれもない空のアカウントにだけ書く。空でなければ `409`（`{ error: "not_empty" }`）。旧版の `evolution = 6` は、アプリが `5` に丸めてから送る。
 
 ### 進化
 
-サーバーは現在の `stage` が `expectedStage` と一致するときだけ、次の不変条件を確かめ、段階と花を**1つのトランザクション**で書く。
+サーバーは現在の `stage` が `expectedStage` と一致するときだけ、次の不変条件を確かめ、段階と花を**1つのトランザクション**で書く。行がなければ、段階 0、花 0 から始める。
 
 - 成長: `nextStage = expectedStage + 1`、`flowersToAdd = 0`
-- 開花: `expectedStage = 5`、`nextStage = 0`、`flowersToAdd = 1`
+- 開花: `expectedStage = 5`、`nextStage = 0`、`flowersToAdd = 1`、または夜桜（`'11'`）なら `2`。どの花が咲くかはアプリが決める。
 
-一致しなければ `409` を返し、現在の値を添える。アプリは、読み直して判定し直す。
+成功すると `{ stage, flowers }` を返す。一致しなければ `409` で `{ error: "conflict", current: { stage, flowers } }` を返す。アプリは、読み直して判定し直す。
 
 ### エラー
 
@@ -134,12 +158,12 @@ startBlocked, blockReason, daily, week
 
 小さな Void プロジェクトで次を確かめ、本実装に進むかを決める。
 
-- [ ] `void init` から `void deploy` まで通り、D1 が作られる
-- [ ] メールとパスワードでの登録とログイン
+- [x] `void init` から `void deploy` まで通り、D1 が作られる（Worker `kumamorun-project`、D1 `kumamorun-project-db`）
+- [x] メールとパスワードでの登録とログイン
 - [ ] OAuth（Google など）でのログイン。ローカルと本番の戻り先を登録できる
-- [ ] パスキーでの登録とログイン（無理なら、プラグインの配線か後回しかを報告する）
-- [ ] ディープリンクの使い捨てコード交換（`/exchange`）が成立する
-- [ ] `batch()` による、段階と花を1つにした更新が原子的に動く
+- [ ] パスキーでの登録とログイン（`@better-auth/passkey` を `auth.ts` に配線済み。サーバーが登録とログインの情報を返すところまで確認。ブラウザでの実際の登録とログインは未確認）
+- [x] ディープリンクの使い捨てコード交換（`/exchange`）が成立する
+- [x] `batch()` による、段階と花を1つにした更新が原子的に動く（途中の文が失敗すると、前の文も取り消される）
 
 結果は報告し、**パスキーの扱い**と、Void のまま進めるかを決める。使えなければ Next.js + Vercel + Neon に切り替える（ADR 0002）。
 
@@ -150,7 +174,25 @@ startBlocked, blockReason, daily, week
 - 端末の一覧と失効の画面
 - ディープリンクの発行（ログイン後に「アプリを開く」）
 - 上の API のすべて
-- 状況ページ（ライブ状況を10秒ごとに取得して表示）。**表示の仕様は、今の `status-kumamorun` の場所が分かってから足す。**
+- 状況ページ（ライブ状況を10秒ごとに取得して表示）。下記。
+
+#### サイトの経路
+
+| 経路 | 内容 |
+|---|---|
+| `/` | ログインしていれば状況ページ、していなければ登録とログイン（メールとパスワード、パスキー、Google）。`?next=` でログイン後の移動先を渡す |
+| `/settings` | アカウント、端末の一覧と失効、パスキーの登録と削除、ログアウト |
+| `/link` | アプリの「ログイン」から開く。ログイン後に「アプリを開く」で `kumamorun://auth?code=…` を渡す |
+| `GET /api/status` | 状況ページが10秒ごとに読む。`{ appRunning, updatedAt, serverTime, status }` |
+
+#### 状況ページの表示
+
+今の `status-kumamorun`（`../status-kumamorun`、Next.js + Firebase）の `components/live-status-view.tsx` を引き継ぐ。
+
+- 帯: 停止なら「アプリ停止」、`keeping` なら「守れている」、そうでなければ「守れていない」
+- 残り: `phase = paused` なら `remainingSec`、それ以外は `startedAt + duration` から毎秒数え直す。停止中は `--:--`
+- 状態（`label`）、当日の失敗数、最終更新（何秒前）
+- 直近1週間の表（日付、遊び、失敗、成功）。`week` をそのまま出す
 
 ### 段階 2: アプリの Rust 同期とディープリンク（このリポジトリ）
 
@@ -192,5 +234,5 @@ startBlocked, blockReason, daily, week
 
 ## 未決
 
-- `status-kumamorun`（今のサイト）の場所と、新しい状況ページの表示の仕様。サイトができたら足す。
-- パスキーを Void 経由で使えるか。段階 0 で決める。
+- パスキーの、ブラウザでの登録とログイン（本番のドメインを含む）。
+- Google の OAuth。クライアント ID とシークレット、戻り先 `/api/auth/callback/google`（ローカルと本番）の登録。

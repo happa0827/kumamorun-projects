@@ -2,7 +2,7 @@
 // 成長か開花かはアプリ（Rust）が決める。サーバーは不変条件を確かめ、
 // 今の段階が expectedStage のときだけ、段階と花を1つの文で書く。
 //   成長: nextStage = expectedStage + 1、flowersToAdd = 0
-//   開花: expectedStage = 5、nextStage = 0、flowersToAdd = 1
+//   開花: expectedStage = 5、nextStage = 0、flowersToAdd = 1 または 2（夜桜だけ 2）
 // 一致しなければ 409 と今の値。不変条件の違反は 422。
 import { progress } from "@schema";
 import { defineHandler } from "void";
@@ -10,13 +10,13 @@ import { and, db, eq, sql } from "void/db";
 import { z } from "zod";
 import { parseBody } from "../../../../src/server/body";
 import { requireDevice } from "../../../../src/server/device-auth";
+import { BLOOM_FLOWERS, Stage } from "../../../../src/server/shapes";
 
-const Stage = z.number().int().min(0).max(5);
 const Body = z.object({ expectedStage: Stage, nextStage: Stage, flowersToAdd: z.number().int() });
 
 function isAllowed({ expectedStage, nextStage, flowersToAdd }: z.infer<typeof Body>): boolean {
   const grow = nextStage === expectedStage + 1 && flowersToAdd === 0;
-  const bloom = expectedStage === 5 && nextStage === 0 && flowersToAdd === 1;
+  const bloom = expectedStage === 5 && nextStage === 0 && (BLOOM_FLOWERS as readonly number[]).includes(flowersToAdd);
   return grow || bloom;
 }
 
