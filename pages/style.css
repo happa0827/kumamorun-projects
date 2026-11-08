@@ -1,0 +1,50 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+form,
+label {
+  display: grid;
+  gap: 0.5rem;
+}
+
+form {
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+input,
+button {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+code {
+  word-break: break-all;
+}
+
+.ok {
+  color: green;
+}
+
+.error {
+  color: crimson;
+}

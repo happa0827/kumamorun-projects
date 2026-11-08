@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1794116547743,
+      "tag": "20261108054227_minor_mac_gargan",
+      "breakpoints": true
+    }
+  ]
+}
