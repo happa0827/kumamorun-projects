@@ -15,7 +15,10 @@ export async function parseBody<T extends z.ZodType>(
   }
   const result = schema.safeParse(raw);
   if (!result.success) {
-    return { ok: false, response: c.json({ error: "invalid_body", issues: result.error.issues }, 422) };
+    return {
+      ok: false,
+      response: c.json({ error: "invalid_body", issues: result.error.issues }, 422),
+    };
   }
   return { ok: true, data: result.data };
 }

@@ -84,7 +84,7 @@ expect 200 "2台目のコード" -b "$JAR" "${H[@]}" -X POST "$B/api/login-code"
 CODE2=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
 expect 200 "2台目の交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$CODE2\",\"deviceName\":\"SMOKE-LAPTOP\"}"
 TOKEN2=$(jq -r .token <<<"$BODY")
-DEVICE2=$(curl -s -b "$JAR" "$B/settings" | grep -o 'data-device-id="[^"]*"><div><strong>SMOKE-LAPTOP<' | cut -d'"' -f2)
+DEVICE2=$(curl -s -b "$JAR" "$B/settings" | grep -o 'data-device-id="[^"]*" data-device-name="SMOKE-LAPTOP"' | cut -d'"' -f2)
 if [ -n "$DEVICE2" ]; then
   expect 204 "サイトから失効" -b "$JAR" "${H[@]}" -X DELETE "$B/api/devices/$DEVICE2"
   expect 404 "2回目の失効" -b "$JAR" "${H[@]}" -X DELETE "$B/api/devices/$DEVICE2"

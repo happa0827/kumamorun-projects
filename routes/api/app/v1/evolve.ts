@@ -16,7 +16,10 @@ const Body = z.object({ expectedStage: Stage, nextStage: Stage, flowersToAdd: z.
 
 function isAllowed({ expectedStage, nextStage, flowersToAdd }: z.infer<typeof Body>): boolean {
   const grow = nextStage === expectedStage + 1 && flowersToAdd === 0;
-  const bloom = expectedStage === 5 && nextStage === 0 && (BLOOM_FLOWERS as readonly number[]).includes(flowersToAdd);
+  const bloom =
+    expectedStage === 5 &&
+    nextStage === 0 &&
+    (BLOOM_FLOWERS as readonly number[]).includes(flowersToAdd);
   return grow || bloom;
 }
 
@@ -31,10 +34,17 @@ export const POST = defineHandler(requireDevice, async (c) => {
 
   // 行がなければ段階 0、花 0 で作り、そのうえで比較つきの更新をする。D1 の batch は1つのトランザクション。
   const [, updated] = await db.batch([
-    db.insert(progress).values({ accountId, stage: 0, flowers: 0, updatedAt: now }).onConflictDoNothing(),
+    db
+      .insert(progress)
+      .values({ accountId, stage: 0, flowers: 0, updatedAt: now })
+      .onConflictDoNothing(),
     db
       .update(progress)
-      .set({ stage: nextStage, flowers: sql`${progress.flowers} + ${flowersToAdd}`, updatedAt: now })
+      .set({
+        stage: nextStage,
+        flowers: sql`${progress.flowers} + ${flowersToAdd}`,
+        updatedAt: now,
+      })
       .where(and(eq(progress.accountId, accountId), eq(progress.stage, expectedStage)))
       .returning({ stage: progress.stage, flowers: progress.flowers }),
   ]);

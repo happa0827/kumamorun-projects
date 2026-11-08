@@ -10,7 +10,12 @@ export const loader = defineHandler(async (c) => {
   if (!user) return c.redirect("/?next=/settings");
 
   const rows = await db
-    .select({ id: devices.id, name: devices.name, createdAt: devices.createdAt, lastSeenAt: devices.lastSeenAt })
+    .select({
+      id: devices.id,
+      name: devices.name,
+      createdAt: devices.createdAt,
+      lastSeenAt: devices.lastSeenAt,
+    })
     .from(devices)
     .where(and(eq(devices.accountId, user.id), isNull(devices.revokedAt)))
     .orderBy(desc(devices.lastSeenAt));

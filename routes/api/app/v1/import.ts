@@ -27,8 +27,16 @@ export const POST = defineHandler(requireDevice, async (c) => {
   const notEmpty = () => c.json({ error: "not_empty" }, 409);
 
   const [p, s, d] = await db.batch([
-    db.select({ id: progress.accountId }).from(progress).where(eq(progress.accountId, accountId)).limit(1),
-    db.select({ id: settings.accountId }).from(settings).where(eq(settings.accountId, accountId)).limit(1),
+    db
+      .select({ id: progress.accountId })
+      .from(progress)
+      .where(eq(progress.accountId, accountId))
+      .limit(1),
+    db
+      .select({ id: settings.accountId })
+      .from(settings)
+      .where(eq(settings.accountId, accountId))
+      .limit(1),
     db.select({ id: daily.accountId }).from(daily).where(eq(daily.accountId, accountId)).limit(1),
   ]);
   if (p.length || s.length || d.length) return notEmpty();
@@ -39,13 +47,23 @@ export const POST = defineHandler(requireDevice, async (c) => {
   // progress は素の INSERT。同時に2回取り込んでも、2回目は主キーの衝突で batch ごと取り消される。
   const statements = [
     db.insert(progress).values({ accountId, stage, flowers, updatedAt: now }),
-    ...(restrictions ? [db.insert(settings).values({ accountId, restrictionsJson: JSON.stringify(restrictions), updatedAt: now })] : []),
+    ...(restrictions
+      ? [
+          db
+            .insert(settings)
+            .values({ accountId, restrictionsJson: JSON.stringify(restrictions), updatedAt: now }),
+        ]
+      : []),
     ...(rows.length ? [db.insert(daily).values(rows)] : []),
   ] as const;
   try {
     await db.batch(statements as unknown as Parameters<typeof db.batch>[0]);
   } catch (error) {
-    if (error instanceof Error && /UNIQUE|PRIMARY KEY|constraint/i.test(error.message + String(error.cause ?? ""))) return notEmpty();
+    // Drizzle は D1 のエラーを cause に包む。どちらかに制約の違反があれば、先に取り込まれていた。
+    const messages = [error, error instanceof Error ? error.cause : null]
+      .map((e) => (e instanceof Error ? e.message : ""))
+      .join(" ");
+    if (/UNIQUE|PRIMARY KEY|constraint/i.test(messages)) return notEmpty();
     throw error;
   }
   return readSync(accountId);

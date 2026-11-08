@@ -6,10 +6,9 @@ import type { Props } from "./index.server";
 export default function HomePage({ signedIn, providers, next, status }: Props) {
   if (!signedIn || !status) {
     return (
-      <>
-        <p className="lead">今の守り状態を見るには、ログインしてください。</p>
+      <div className="auth-wrap">
         <AuthScreen providers={providers} next={safeNext(next)} />
-      </>
+      </div>
     );
   }
   return <StatusView initial={status} />;

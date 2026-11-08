@@ -23,7 +23,13 @@ export function socialProviders(env: Record<string, unknown>) {
   return Object.fromEntries(
     configuredProviders(env).map((provider) => {
       const names = envNames(provider);
-      return [provider, { clientId: env[names.clientId] as string, clientSecret: env[names.clientSecret] as string }];
+      return [
+        provider,
+        {
+          clientId: env[names.clientId] as string,
+          clientSecret: env[names.clientSecret] as string,
+        },
+      ];
     }),
   ) as Partial<Record<OAuthProvider, { clientId: string; clientSecret: string }>>;
 }

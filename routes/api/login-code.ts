@@ -10,6 +10,8 @@ export const POST = defineHandler(async (c) => {
   const user = requireAuth(c);
   const code = newLoginCode();
   const expiresAt = Date.now() + LOGIN_CODE_TTL_MS;
-  await db.insert(loginCodes).values({ codeHash: await sha256Hex(code), accountId: user.id, expiresAt });
+  await db
+    .insert(loginCodes)
+    .values({ codeHash: await sha256Hex(code), accountId: user.id, expiresAt });
   return { url: `kumamorun://auth?code=${encodeURIComponent(code)}`, expiresAt };
 });

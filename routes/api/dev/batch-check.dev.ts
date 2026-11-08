@@ -14,7 +14,10 @@ export const GET = defineHandler(async () => {
   let failed: string | null = null;
   try {
     await db.batch([
-      db.update(progress).set({ flowers: sql`${progress.flowers} + 1` }).where(eq(progress.accountId, ACCOUNT)),
+      db
+        .update(progress)
+        .set({ flowers: sql`${progress.flowers} + 1` })
+        .where(eq(progress.accountId, ACCOUNT)),
       db.update(progress).set({ stage: 6 }).where(eq(progress.accountId, ACCOUNT)),
     ]);
   } catch (error) {
@@ -23,5 +26,10 @@ export const GET = defineHandler(async () => {
 
   const [after] = await db.select().from(progress).where(eq(progress.accountId, ACCOUNT));
   await db.delete(progress).where(eq(progress.accountId, ACCOUNT));
-  return { batchFailed: failed !== null, error: failed, flowersAfter: after?.flowers, atomic: failed !== null && after?.flowers === 0 };
+  return {
+    batchFailed: failed !== null,
+    error: failed,
+    flowersAfter: after?.flowers,
+    atomic: failed !== null && after?.flowers === 0,
+  };
 });

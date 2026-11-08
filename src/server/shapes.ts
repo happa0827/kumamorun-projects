@@ -24,7 +24,17 @@ export const Flowers = z.number().int().min(0).max(1_000_000);
 /** 開花で増える花。夜桜（'11'）だけ 2、ほかは 1。どの花が咲くかはアプリが決める。 */
 export const BLOOM_FLOWERS = [1, 2] as const;
 
-export const PHASES = ["lunch", "play", "break", "paused", "reward", "finished", "ended", "idle", "offline"] as const;
+export const PHASES = [
+  "lunch",
+  "play",
+  "break",
+  "paused",
+  "reward",
+  "finished",
+  "ended",
+  "idle",
+  "offline",
+] as const;
 
 const WeekDay = z.object({ date: DateKey, plays: Count, failures: Count, success: z.boolean() });
 const NullableInt = z.number().int().nullable();

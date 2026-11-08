@@ -1,0 +1,309 @@
+/* サイト全体の配置。色、角丸、文字の大きさは Arc UI のトークン（foundation.css）だけを使う。 */
+
+:root {
+  --font-geist: "Geist";
+  --font-inter: "Inter", "Noto Sans JP";
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), "Noto Sans JP", sans-serif;
+  letter-spacing: var(--tracking-body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.shell {
+  min-height: 100dvh;
+}
+
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--foreground);
+  font-family: var(--font-display), "Noto Sans JP", sans-serif;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  text-decoration: none;
+}
+
+.brand-mark {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.nav {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+}
+
+.nav a {
+  padding: 0.35rem 0.9rem;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.nav a:hover {
+  color: var(--foreground);
+}
+
+.nav a[data-void-active] {
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-resting);
+  color: var(--foreground);
+}
+
+.page {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0 1rem 4rem;
+}
+
+/* 登録とログインのカード（Arc の sign-in ブロック）を中央に置く */
+.auth-wrap {
+  display: grid;
+  justify-items: center;
+  padding-top: 1.5rem;
+}
+
+/* 区切りの箱。見出し、説明、中身を縦に並べる。 */
+.panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-resting);
+}
+
+.panel-head {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.panel h1,
+.panel h2,
+.panel h3,
+.panel p {
+  margin: 0;
+}
+
+.panel h1,
+.panel h2 {
+  font-family: var(--font-display), "Noto Sans JP", sans-serif;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-display);
+}
+
+.panel h3 {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.lead {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.full {
+  width: 100%;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.divider::before,
+.divider::after {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  content: "";
+}
+
+.text-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+/* 状況ページの帯。守れている → success、守れていない → warning、停止 → 落ち着いた灰色。 */
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 1.1rem 1rem;
+  border-radius: var(--radius-control);
+  font-family: var(--font-display), "Noto Sans JP", sans-serif;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  transition:
+    background var(--duration-standard) var(--ease-standard),
+    color var(--duration-standard) var(--ease-standard);
+}
+
+.banner.keeping {
+  background: color-mix(in oklab, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.banner.breaking {
+  background: color-mix(in oklab, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+.banner.stopped {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.fact {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.fact dt {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.fact dd {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.mono {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.remaining {
+  font-size: var(--text-2xl);
+  letter-spacing: 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  padding: 0.6rem 1rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+thead {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+thead th {
+  font-weight: 500;
+}
+
+tbody tr {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cards {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 30rem) {
+  .panel {
+    padding: 1.25rem;
+  }
+
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

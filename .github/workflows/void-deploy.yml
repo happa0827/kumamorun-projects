@@ -15,8 +15,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
+      # Vite+ と Node.js を入れる。パッケージマネージャーは bun.lock から vp が選ぶ。
+      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
+        with:
+          node-version: "24"
+          cache: true
+          run-install: false
+      - run: vp install --frozen-lockfile
+      # 書式、lint、型の検査。通らなければデプロイしない。
+      - run: vp check
       - name: Deploy
         env:
           # Add this scoped token at Settings → Secrets and variables → Actions.
@@ -28,4 +35,4 @@ jobs:
           # Required only when Cloudflare Access protects Worker readiness.
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: bunx void deploy --platform cloudflare
+        run: vp exec void deploy --platform cloudflare

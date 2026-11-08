@@ -15,7 +15,11 @@ export const POST = defineHandler(requireDevice, async (c) => {
     .values({ accountId, appRunning: 0, bodyJson: EMPTY, updatedAt: now })
     .onConflictDoUpdate({
       target: liveStatus.accountId,
-      set: { appRunning: 0, bodyJson: sql`json_set(${liveStatus.bodyJson}, '$.phase', 'offline')`, updatedAt: now },
+      set: {
+        appRunning: 0,
+        bodyJson: sql`json_set(${liveStatus.bodyJson}, '$.phase', 'offline')`,
+        updatedAt: now,
+      },
     });
   return null;
 });

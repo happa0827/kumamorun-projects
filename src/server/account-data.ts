@@ -8,21 +8,30 @@ type DayRow = { date: string; plays: number; failures: number };
 /** GET /sync の中身。daily は最新の日付の記録、history は直近7日。 */
 export async function readSync(accountId: string) {
   const [settingsRows, dayRows, progressRows] = await db.batch([
-    db.select({ json: settings.restrictionsJson }).from(settings).where(eq(settings.accountId, accountId)),
+    db
+      .select({ json: settings.restrictionsJson })
+      .from(settings)
+      .where(eq(settings.accountId, accountId)),
     db
       .select({ date: daily.date, plays: daily.plays, failures: daily.failures })
       .from(daily)
       .where(eq(daily.accountId, accountId))
       .orderBy(desc(daily.date))
       .limit(HISTORY_DAYS),
-    db.select({ stage: progress.stage, flowers: progress.flowers }).from(progress).where(eq(progress.accountId, accountId)),
+    db
+      .select({ stage: progress.stage, flowers: progress.flowers })
+      .from(progress)
+      .where(eq(progress.accountId, accountId)),
   ]);
 
   const history: Record<string, { plays: number; failures: number }> = {};
-  for (const row of dayRows as DayRow[]) history[row.date] = { plays: row.plays, failures: row.failures };
+  for (const row of dayRows as DayRow[])
+    history[row.date] = { plays: row.plays, failures: row.failures };
 
   return {
-    restrictions: settingsRows[0] ? (JSON.parse(settingsRows[0].json) as Record<string, unknown>) : null,
+    restrictions: settingsRows[0]
+      ? (JSON.parse(settingsRows[0].json) as Record<string, unknown>)
+      : null,
     daily: (dayRows[0] as DayRow | undefined) ?? null,
     history,
     stage: progressRows[0]?.stage ?? 0,

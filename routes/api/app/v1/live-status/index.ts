@@ -13,7 +13,11 @@ export const PUT = defineHandler(requireDevice, async (c) => {
 
   const { accountId } = c.get("device");
   const now = Date.now();
-  const row = { appRunning: body.data.phase === "offline" ? 0 : 1, bodyJson: JSON.stringify(body.data), updatedAt: now };
+  const row = {
+    appRunning: body.data.phase === "offline" ? 0 : 1,
+    bodyJson: JSON.stringify(body.data),
+    updatedAt: now,
+  };
   await db
     .insert(liveStatus)
     .values({ accountId, ...row })

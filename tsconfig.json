@@ -7,20 +7,17 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": [
-      "void/env"
-    ],
-    "jsx": "react-jsx"
+    "types": ["void/env"],
+    "jsx": "react-jsx",
+    // paths は extends 先と合わさらず置き換わるので、.void/tsconfig.json の分も写す。
+    // "@/*" は Arc UI（shadcn）が前提にする別名。src/ を指す。
+    "paths": {
+      "void/db": ["./.void/db.d.ts"],
+      "@schema": ["./db/schema.ts"],
+      "@schema/*": ["./db/schema/*"],
+      "void/routes": ["./.void/routes.d.ts"],
+      "@/*": ["./src/*"]
+    }
   },
-  "include": [
-    "auth.ts",
-    "env.ts",
-    "src",
-    "pages",
-    "routes",
-    "middleware",
-    "crons",
-    "queues",
-    "db"
-  ]
+  "include": ["auth.ts", "env.ts", "src", "pages", "routes", "middleware", "crons", "queues", "db"]
 }
