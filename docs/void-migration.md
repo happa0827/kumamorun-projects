@@ -15,7 +15,7 @@
 ## 決定の一覧
 
 - 構成: Void（Cloudflare Workers）+ D1。サイト、認証、アプリ向け API、状況ページを1つのプロジェクトに置く。
-- 認証: Google（OAuth）、メールの6桁のコード（OTP）、パスキーの3つだけ。パスワードは使わない。Void の Better Auth を使う（`emailOTP` と `@better-auth/passkey`）。初めてのメールアドレスは、コードでのログインがそのまま登録になる。パスキーはログインした後に設定から足す。コードは10分で失効し、3回間違えると使えなくなる。
+- 認証: Google（OAuth）とパスキーだけ。パスワードは使わない。Void の Better Auth を使う。登録は Google で行い、パスキーはログインした後に設定から足す。メールの6桁のコード（`emailOTP`）は開発のときだけ有効で、Google の設定がなくてもローカルでログインと試験ができるようにしている。本番でメールのコードを使うには独自のドメインと送信元（`email.from`）が要るので、無料で済むよう見送った（`src/server/otp-mail.ts` の `EMAIL_CODE_ENABLED` で戻せる）。
 - ディープリンク: サイトが短時間だけ有効な使い捨てコードを `kumamorun://auth?code=…` で渡す。アプリが API で端末のトークンに交換する。トークンは URL に載せない。
 - 端末のトークン: 端末ごとに発行し、サイトの画面から失効できる。アプリは Rust 側で OS の資格情報ストアに保管し、WebView には渡さない。
 - 切断の検知: ハートビート。アプリは20秒ごとにライブ状況を書く。サイトは最後の書き込みから60秒を超えたら停止とみなす。正常終了とログアウトでは、アプリが明示的にオフラインを書く。必要になれば後から Durable Objects で1秒級にする。
@@ -180,7 +180,7 @@ type History = Record<string, { plays: number; failures: number }>;        // �
 
 | 経路 | 内容 |
 |---|---|
-| `/` | ログインしていれば状況ページ、していなければログイン（メールのコード、パスキー、Google。初めてのメールアドレスはそのまま登録）。`?next=` でログイン後の移動先を渡す |
+| `/` | ログインしていれば状況ページ、していなければログイン（Google とパスキー。登録は Google。開発のときだけメールのコードも出る）。`?next=` でログイン後の移動先を渡す |
 | `/settings` | アカウント（名前の変更）、端末の一覧と失効、パスキーの登録と削除、ログアウト |
 | `/link` | アプリの「ログイン」から開く。ログイン後に「アプリを開く」で `kumamorun://auth?code=…` を渡す |
 | `GET /api/status` | 状況ページが10秒ごとに読む。`{ appRunning, updatedAt, serverTime, status }` |
@@ -236,4 +236,5 @@ type History = Record<string, { plays: number; failures: number }>;        // �
 
 - パスキーの、ブラウザでの登録とログイン（本番のドメインを含む）。
 - Google の OAuth。クライアント ID とシークレット、戻り先 `/api/auth/callback/google`（ローカルと本番）の登録。
-- 本番のメール送信。Cloudflare に置いた自分のドメインで `void.config.ts` の `email.from` を決め（例: `くまもーるん <login@mail.example.com>`）、`void email setup --platform cloudflare` のあと `void.lock.json` をコミットし、CI の deploy に `--require-email` を足す。Workers Free は確認済みの宛先にしか送れないので、利用者に送るには Workers Paid が要る。これが済むまで、本番ではメールのコードでログインできない（`INVALID_FROM`）。
+- 本番は Google の設定が済むまで、誰も新しく登録できない（ログイン画面に注意が出る）。
+- 本番でメールのコードも使う場合（今は見送り）: Cloudflare に置いた独自のドメインで `void.config.ts` の `email.from` を決め、`void email setup --platform cloudflare` のあと `void.lock.json` をコミットし、CI の deploy に `--require-email` を足す。Workers Free は確認済みの宛先にしか送れない。

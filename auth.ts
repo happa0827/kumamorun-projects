@@ -1,11 +1,12 @@
-// 認証は3つだけ: Google（OAuth）、メールの6桁のコード（OTP）、パスキー。パスワードは使わない。
-// 初めてのメールアドレスは、OTP でのログインがそのまま登録になる。
-// パスキーはログインした後に設定から足す（パスキーだけでは登録できない）。
+// 認証は Google（OAuth）とパスキーだけ。パスワードは使わない。
+// 登録は Google で行い、パスキーはログインした後に設定から足す（パスキーだけでは登録できない）。
+// メールの6桁のコード（OTP）は、開発のときだけ有効にする。Google の設定がなくても、
+// ローカルでログインと通しの試験（scripts/smoke-api.sh）ができるようにするため。
 import { passkey } from "@better-auth/passkey";
 import { emailOTP } from "better-auth/plugins";
 import { defineAuth } from "void/auth";
 import { socialProviders } from "./src/oauth";
-import { OTP_EXPIRES_MINUTES, sendOtpMail } from "./src/server/otp-mail";
+import { EMAIL_CODE_ENABLED, OTP_EXPIRES_MINUTES, sendOtpMail } from "./src/server/otp-mail";
 
 export default defineAuth(({ defaults, env }) => ({
   ...defaults,
@@ -35,13 +36,17 @@ export default defineAuth(({ defaults, env }) => ({
     accountLinking: { enabled: true, trustedProviders: ["google"] },
   },
   plugins: [
-    emailOTP({
-      otpLength: 6,
-      expiresIn: OTP_EXPIRES_MINUTES * 60,
-      allowedAttempts: 3,
-      storeOTP: "hashed",
-      sendVerificationOTP: sendOtpMail,
-    }),
+    ...(EMAIL_CODE_ENABLED
+      ? [
+          emailOTP({
+            otpLength: 6,
+            expiresIn: OTP_EXPIRES_MINUTES * 60,
+            allowedAttempts: 3,
+            storeOTP: "hashed",
+            sendVerificationOTP: sendOtpMail,
+          }),
+        ]
+      : []),
     passkey({ rpName: "くまもーるん" }),
   ],
 }));

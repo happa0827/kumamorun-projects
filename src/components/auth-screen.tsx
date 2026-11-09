@@ -1,8 +1,8 @@
 // ログイン（と登録）の画面。Arc UI のブロック「Login and sign up」（@uiarc/sign-in）を元にしている。
 // 見た目と動きはブロックの CSS（arc/blocks/sign-in/sign-in.module.css）と段階の切り替えをそのまま使い、
 // デモの部分を本物の認証に置き換えた。
-//   段階: メール → 6桁のコード（メール OTP） → 完了。完了したら next（同じサイトの経路だけ）へ移る。
-//   ほかに、パスキーと Google でもログインできる。初めてのメールアドレスは、そのまま登録になる。
+//   本番: Google（登録もここ）とパスキー。完了の段階を見せてから next（同じサイトの経路だけ）へ移る。
+//   開発のときだけ、メール → 6桁のコード → 完了の段階も出す（emailCode。auth.ts と揃える）。
 import {
   useCallback,
   useEffect,
@@ -264,7 +264,17 @@ function GoogleLogo() {
   );
 }
 
-export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; next: string }) {
+export function AuthScreen({
+  providers,
+  next,
+  emailCode,
+}: {
+  providers: OAuthProvider[];
+  next: string;
+  /** メールのコードでのログインを出すか。開発のときだけ true（auth.ts と揃える）。 */
+  emailCode: boolean;
+}) {
+  const hasGoogle = providers.includes("google");
   const id = useId();
   const reduce = !!useReducedMotion();
   const [step, setStep] = useState<Step>("email");
@@ -500,69 +510,92 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                 >
                   <div className={styles.heading}>
                     <h2>くまもーるんにログイン</h2>
-                    <p>メールアドレスに、6桁のコードを送ります。</p>
+                    <p>
+                      {emailCode
+                        ? "開発用: メールアドレスに、6桁のコードを送ります（開発サーバーの受け箱に届きます）。"
+                        : "Google か、登録したパスキーでログインします。"}
+                    </p>
                   </div>
-                  <form className={styles.form} onSubmit={submitEmail} noValidate>
-                    <div className={styles.fieldGroup}>
-                      <Input
-                        ref={emailRef}
-                        label="メールアドレス"
-                        type="email"
-                        inputMode="email"
-                        autoComplete="email webauthn"
-                        autoCapitalize="none"
-                        spellCheck={false}
-                        placeholder="name@example.com"
-                        value={email}
-                        readOnly={busy === "send"}
-                        error={emailError}
-                        onChange={(event) => setEmail(event.target.value)}
-                        onBlur={() => {
-                          if (email.trim()) setTouched(true);
-                        }}
-                      />
-                      <AnimatePresence initial={false}>
-                        {suggestion && (
-                          <motion.div
-                            key="suggestion"
-                            className={styles.suggestion}
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={
-                              reduce
-                                ? { duration: 0 }
-                                : {
-                                    height: motionTokens.spring.smooth,
-                                    opacity: { duration: motionTokens.duration.fast },
-                                  }
-                            }
-                          >
-                            <p>
-                              <button
-                                type="button"
-                                className={styles.textButton}
-                                aria-label={`${suggestion} にする`}
-                                onClick={() => {
-                                  setEmail(suggestion);
-                                  setStatus(`メールアドレスを ${suggestion} にしました`);
-                                  emailRef.current?.focus();
-                                }}
-                              >
-                                {suggestion}
-                              </button>
-                              ではありませんか？
-                            </p>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                    <Button type="submit" className={styles.wide} loading={busy === "send"}>
-                      コードを送る
-                    </Button>
-                  </form>
-                  <div className={styles.divider}>または</div>
+                  {!emailCode && !hasGoogle && (
+                    <Alert tone="warning" title="Google でのログインがまだ設定されていません">
+                      設定が済むまで、新しく登録できません。
+                    </Alert>
+                  )}
+                  {emailCode && (
+                    <form className={styles.form} onSubmit={submitEmail} noValidate>
+                      <div className={styles.fieldGroup}>
+                        <Input
+                          ref={emailRef}
+                          label="メールアドレス"
+                          type="email"
+                          inputMode="email"
+                          autoComplete="email webauthn"
+                          autoCapitalize="none"
+                          spellCheck={false}
+                          placeholder="name@example.com"
+                          value={email}
+                          readOnly={busy === "send"}
+                          error={emailError}
+                          onChange={(event) => setEmail(event.target.value)}
+                          onBlur={() => {
+                            if (email.trim()) setTouched(true);
+                          }}
+                        />
+                        <AnimatePresence initial={false}>
+                          {suggestion && (
+                            <motion.div
+                              key="suggestion"
+                              className={styles.suggestion}
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={
+                                reduce
+                                  ? { duration: 0 }
+                                  : {
+                                      height: motionTokens.spring.smooth,
+                                      opacity: { duration: motionTokens.duration.fast },
+                                    }
+                              }
+                            >
+                              <p>
+                                <button
+                                  type="button"
+                                  className={styles.textButton}
+                                  aria-label={`${suggestion} にする`}
+                                  onClick={() => {
+                                    setEmail(suggestion);
+                                    setStatus(`メールアドレスを ${suggestion} にしました`);
+                                    emailRef.current?.focus();
+                                  }}
+                                >
+                                  {suggestion}
+                                </button>
+                                ではありませんか？
+                              </p>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                      <Button type="submit" className={styles.wide} loading={busy === "send"}>
+                        コードを送る
+                      </Button>
+                    </form>
+                  )}
+                  {emailCode && <div className={styles.divider}>または</div>}
                   <div className={styles.alternatives}>
+                    {hasGoogle && (
+                      <Button
+                        type="button"
+                        variant={emailCode ? "secondary" : "primary"}
+                        className={styles.wide}
+                        loading={busy === "google"}
+                        onClick={signInWithGoogle}
+                      >
+                        <GoogleLogo />
+                        Google で続ける
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="secondary"
@@ -573,18 +606,6 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                       <KeyRound size={16} strokeWidth={1.75} aria-hidden="true" />
                       パスキーでログイン
                     </Button>
-                    {providers.includes("google") && (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className={styles.wide}
-                        loading={busy === "google"}
-                        onClick={signInWithGoogle}
-                      >
-                        <GoogleLogo />
-                        Google で続ける
-                      </Button>
-                    )}
                   </div>
                   <Alert
                     tone="danger"
@@ -823,7 +844,11 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
           </AnimatePresence>
         </span>
         {step !== "done" && (
-          <span className={styles.switch}>はじめての方も、同じ手順で登録できます</span>
+          <span className={styles.switch}>
+            {emailCode
+              ? "はじめてのメールアドレスは、そのまま登録になります"
+              : "はじめての方は Google で登録し、設定からパスキーを足せます"}
+          </span>
         )}
       </footer>
     </section>

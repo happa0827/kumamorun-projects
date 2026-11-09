@@ -1,9 +1,12 @@
 // ログイン用の6桁のコードをメールで送る。auth.ts から使う。
-// 送信元は void.config.ts の email.from（本番）。開発では Void のローカルの受け箱に入る。
+// 本番には送信元のドメインがないので、メールのコードは開発のときだけ使う（Void のローカルの受け箱に届く）。
+// 本番でも使うなら、void.config.ts に email.from を書いて、EMAIL_CODE_ENABLED を本番でも true にする。
 import { sendEmail } from "void/email";
 
+/** メールのコードでのログインを有効にするか。auth.ts とログイン画面がこれに従う。 */
+export const EMAIL_CODE_ENABLED: boolean = import.meta.env.DEV;
 export const OTP_EXPIRES_MINUTES = 10;
-/** 開発の受け箱は送信元を確かめないので、仮の差出人で足りる。本番は email.from を使う。 */
+/** 開発の受け箱は送信元を確かめないので、仮の差出人で足りる。 */
 const DEV_FROM = "くまもーるん <noreply@kumamorun.localhost>";
 
 type OtpType = "sign-in" | "email-verification" | "forget-password" | "change-email";
@@ -19,7 +22,7 @@ export async function sendOtpMail({
 }) {
   if (type !== "sign-in") return; // ログインのほかは使っていない
   const result = await sendEmail({
-    ...(import.meta.env.DEV ? { from: DEV_FROM } : {}),
+    from: DEV_FROM,
     to: email,
     subject: `くまもーるんのログインコード: ${otp}`,
     text: [
