@@ -21,9 +21,19 @@ api() { local m=$1 p=$2; shift 2; curl -s "${H[@]}" -H "Authorization: Bearer $T
 eapi() { local want=$1 what=$2 m=$3 p=$4; shift 4; expect "$want" "$what" "${H[@]}" -H "Authorization: Bearer $TOKEN" -X "$m" "$B/api/app/v1$p" "$@"; }
 check() { if jq -e "$2" <<<"$BODY" >/dev/null; then echo "ok      $1"; else echo "NG      $1: ${BODY:0:300}"; FAIL=$((FAIL+1)); fi; }
 
-echo "== 認証"
-expect 200 "登録" -c "$JAR" -b "$JAR" "${H[@]}" -X POST "$B/api/auth/sign-up/email" -d "{\"email\":\"$EMAIL\",\"password\":\"password-123\",\"name\":\"smoke\"}"
-expect 401 "間違ったパスワード" "${H[@]}" -X POST "$B/api/auth/sign-in/email" -d "{\"email\":\"$EMAIL\",\"password\":\"wrong-pass-1\"}"
+echo "== 認証（メールのコード。初めてのアドレスなので、そのまま登録になる）"
+# コードは void dev の受け箱から読む。受け箱は HTML の一覧しかないので、送る前に空にする。
+DEV_TOKEN=$(<"$(dirname "$0")/../.void/dev-trigger-token")
+INBOX=(-H "x-void-dev-trigger: $DEV_TOKEN" "$B/__void/inbox")
+curl -s -o /dev/null -X DELETE "${INBOX[@]}"
+expect 200 "コードの送信" "${H[@]}" -X POST "$B/api/auth/email-otp/send-verification-otp" -d "{\"email\":\"$EMAIL\",\"type\":\"sign-in\"}"
+OTP=""; for _ in 1 2 3 4 5; do OTP=$(curl -s "${INBOX[@]}" | grep -oE 'ログインコード: [0-9]{6}' | head -1 | grep -oE '[0-9]{6}'); [ -n "$OTP" ] && break; sleep 0.5; done
+if [ -n "$OTP" ]; then echo "ok      受け箱にコードが届いた"; else echo "NG      受け箱にコードが届かない"; FAIL=$((FAIL+1)); fi
+WRONG=$([ "$OTP" = "000000" ] && echo 111111 || echo 000000)
+expect 400 "間違ったコード" "${H[@]}" -X POST "$B/api/auth/sign-in/email-otp" -d "{\"email\":\"$EMAIL\",\"otp\":\"$WRONG\"}"
+expect 200 "コードでログイン（登録）" -c "$JAR" -b "$JAR" "${H[@]}" -X POST "$B/api/auth/sign-in/email-otp" -d "{\"email\":\"$EMAIL\",\"otp\":\"$OTP\"}"
+expect 400 "使ったコードの使い回し" "${H[@]}" -X POST "$B/api/auth/sign-in/email-otp" -d "{\"email\":\"$EMAIL\",\"otp\":\"$OTP\"}"
+expect 400 "パスワードでの登録は無効" "${H[@]}" -X POST "$B/api/auth/sign-up/email" -d "{\"email\":\"pw-$EMAIL\",\"password\":\"password-123\",\"name\":\"smoke\"}"
 expect 401 "ログインなしのコード発行" "${H[@]}" -X POST "$B/api/login-code"
 
 echo "== ディープリンクのコード交換"

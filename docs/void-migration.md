@@ -15,7 +15,7 @@
 ## 決定の一覧
 
 - 構成: Void（Cloudflare Workers）+ D1。サイト、認証、アプリ向け API、状況ページを1つのプロジェクトに置く。
-- 認証: メールとパスワード、OAuth（Google など）、パスキー。Void の Better Auth を使う。パスキーが Void 経由で使えなければ、プラグインを自分で配線し、それも難しければ後回しにする。
+- 認証: Google（OAuth）、メールの6桁のコード（OTP）、パスキーの3つだけ。パスワードは使わない。Void の Better Auth を使う（`emailOTP` と `@better-auth/passkey`）。初めてのメールアドレスは、コードでのログインがそのまま登録になる。パスキーはログインした後に設定から足す。コードは10分で失効し、3回間違えると使えなくなる。
 - ディープリンク: サイトが短時間だけ有効な使い捨てコードを `kumamorun://auth?code=…` で渡す。アプリが API で端末のトークンに交換する。トークンは URL に載せない。
 - 端末のトークン: 端末ごとに発行し、サイトの画面から失効できる。アプリは Rust 側で OS の資格情報ストアに保管し、WebView には渡さない。
 - 切断の検知: ハートビート。アプリは20秒ごとにライブ状況を書く。サイトは最後の書き込みから60秒を超えたら停止とみなす。正常終了とログアウトでは、アプリが明示的にオフラインを書く。必要になれば後から Durable Objects で1秒級にする。
@@ -159,7 +159,7 @@ type History = Record<string, { plays: number; failures: number }>;        // �
 小さな Void プロジェクトで次を確かめ、本実装に進むかを決める。
 
 - [x] `void init` から `void deploy` まで通り、D1 が作られる（Worker `kumamorun-project`、D1 `kumamorun-project-db`）
-- [x] メールとパスワードでの登録とログイン
+- [x] メールとパスワードでの登録とログイン（その後、パスワードをやめてメールのコードに替えた。ローカルの受け箱で、送信、ログイン、間違いと使い回しの拒否まで確認）
 - [ ] OAuth（Google など）でのログイン。ローカルと本番の戻り先を登録できる
 - [ ] パスキーでの登録とログイン（`@better-auth/passkey` を `auth.ts` に配線済み。サーバーが登録とログインの情報を返すところまで確認。ブラウザでの実際の登録とログインは未確認）
 - [x] ディープリンクの使い捨てコード交換（`/exchange`）が成立する
@@ -180,8 +180,8 @@ type History = Record<string, { plays: number; failures: number }>;        // �
 
 | 経路 | 内容 |
 |---|---|
-| `/` | ログインしていれば状況ページ、していなければ登録とログイン（メールとパスワード、パスキー、Google）。`?next=` でログイン後の移動先を渡す |
-| `/settings` | アカウント、端末の一覧と失効、パスキーの登録と削除、ログアウト |
+| `/` | ログインしていれば状況ページ、していなければログイン（メールのコード、パスキー、Google。初めてのメールアドレスはそのまま登録）。`?next=` でログイン後の移動先を渡す |
+| `/settings` | アカウント（名前の変更）、端末の一覧と失効、パスキーの登録と削除、ログアウト |
 | `/link` | アプリの「ログイン」から開く。ログイン後に「アプリを開く」で `kumamorun://auth?code=…` を渡す |
 | `GET /api/status` | 状況ページが10秒ごとに読む。`{ appRunning, updatedAt, serverTime, status }` |
 
@@ -236,3 +236,4 @@ type History = Record<string, { plays: number; failures: number }>;        // �
 
 - パスキーの、ブラウザでの登録とログイン（本番のドメインを含む）。
 - Google の OAuth。クライアント ID とシークレット、戻り先 `/api/auth/callback/google`（ローカルと本番）の登録。
+- 本番のメール送信。Cloudflare に置いた自分のドメインで `void.config.ts` の `email.from` を決め（例: `くまもーるん <login@mail.example.com>`）、`void email setup --platform cloudflare` のあと `void.lock.json` をコミットし、CI の deploy に `--require-email` を足す。Workers Free は確認済みの宛先にしか送れないので、利用者に送るには Workers Paid が要る。これが済むまで、本番ではメールのコードでログインできない（`INVALID_FROM`）。

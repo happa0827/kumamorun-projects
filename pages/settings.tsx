@@ -5,6 +5,7 @@ import { Alert } from "@/components/arc/alert/alert";
 import { Button } from "@/components/arc/button/button";
 import { Card } from "@/components/arc/card/card";
 import { EmptyState } from "@/components/arc/empty-state/empty-state";
+import { Input } from "@/components/arc/input/input";
 import { Skeleton } from "@/components/arc/skeleton/skeleton";
 import { authClient } from "../src/auth-client";
 import { ConfirmDialog } from "../src/components/confirm-dialog";
@@ -27,11 +28,9 @@ function Settings({ user, devices }: Loaded) {
       <section className="panel" aria-labelledby="account-title">
         <div className="panel-head">
           <h1 id="account-title">設定</h1>
-          <p className="lead">
-            {user.name}
-            {user.name !== user.email && <span className="muted">（{user.email}）</span>}
-          </p>
+          <p className="lead">{user.email}</p>
         </div>
+        <NameForm initial={user.name} />
         <div className="row">
           <OpenAppButton />
           <Button
@@ -50,6 +49,66 @@ function Settings({ user, devices }: Loaded) {
       <Devices initial={devices} />
       <Passkeys />
     </>
+  );
+}
+
+/** メールのコードで登録すると名前は空なので、ここで付けられるようにする */
+function NameForm({ initial }: { initial: string }) {
+  const [name, setName] = useState(initial);
+  const [saved, setSaved] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const trimmed = name.trim();
+  const tooLong = trimmed.length > 40;
+
+  return (
+    <form
+      className="name-form"
+      noValidate
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (saving || tooLong || trimmed === saved) return;
+        setSaving(true);
+        const { error } = await authClient.updateUser({ name: trimmed });
+        setSaving(false);
+        if (error) {
+          setMessage({ ok: false, text: "名前を保存できませんでした" });
+          return;
+        }
+        setSaved(trimmed);
+        setName(trimmed);
+        setMessage({ ok: true, text: "名前を保存しました" });
+      }}
+    >
+      <Input
+        label="名前"
+        description="サイトの表示に使います。空のままでもかまいません。"
+        autoComplete="nickname"
+        value={name}
+        error={tooLong ? "40文字までにしてください" : undefined}
+        onChange={(event) => {
+          setName(event.target.value);
+          setMessage(null);
+        }}
+      />
+      <div className="row">
+        <Button
+          type="submit"
+          variant="secondary"
+          size="sm"
+          loading={saving}
+          disabled={tooLong || trimmed === saved}
+        >
+          保存
+        </Button>
+      </div>
+      <Alert
+        tone={message?.ok ? "success" : "danger"}
+        title={message?.text ?? ""}
+        open={message !== null}
+        onDismiss={() => setMessage(null)}
+      />
+    </form>
   );
 }
 
@@ -135,7 +194,9 @@ function Passkeys() {
     <section className="panel" aria-labelledby="passkey-title">
       <div className="panel-head">
         <h2 id="passkey-title">パスキー</h2>
-        <p className="muted">登録すると、パスワードの代わりに指紋や顔、PIN でログインできます。</p>
+        <p className="muted">
+          登録すると、メールのコードを待たずに、指紋や顔、PIN でログインできます。
+        </p>
       </div>
       <Alert
         tone={message?.ok ? "success" : "danger"}

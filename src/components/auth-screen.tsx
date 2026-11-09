@@ -1,7 +1,8 @@
-// 登録とログインの画面。Arc UI のブロック「Login and sign up」（@uiarc/sign-in）を元にしている。
+// ログイン（と登録）の画面。Arc UI のブロック「Login and sign up」（@uiarc/sign-in）を元にしている。
 // 見た目と動きはブロックの CSS（arc/blocks/sign-in/sign-in.module.css）と段階の切り替えをそのまま使い、
-// 中身をくまもーるんの認証（メールとパスワード、パスキー、Google）に置き換えた。
-//   段階: メール → パスワード（登録では名前も） → 完了。完了したら next（同じサイトの経路だけ）へ移る。
+// デモの部分を本物の認証に置き換えた。
+//   段階: メール → 6桁のコード（メール OTP） → 完了。完了したら next（同じサイトの経路だけ）へ移る。
+//   ほかに、パスキーと Google でもログインできる。初めてのメールアドレスは、そのまま登録になる。
 import {
   useCallback,
   useEffect,
@@ -27,23 +28,26 @@ import { Avatar } from "@/components/arc/avatar/avatar";
 import { Button } from "@/components/arc/button/button";
 import { Input } from "@/components/arc/input/input";
 import { motionTokens } from "@/components/arc/lib/motion-tokens";
-import { PasswordField } from "@/components/arc/password-field/password-field";
+import { OtpInput } from "@/components/arc/otp-input/otp-input";
 import styles from "@/components/arc/blocks/sign-in/sign-in.module.css";
 import { authClient } from "../auth-client";
 import type { OAuthProvider } from "../oauth";
 
-type Step = "email" | "password" | "done";
-type Mode = "signIn" | "signUp";
-type Method = "password" | "passkey" | "google";
+type Step = "email" | "code" | "done";
+type Method = "code" | "passkey" | "google";
 type Account = { name: string; email: string };
-type AuthError = { code?: string; message?: string } | null | undefined;
+type AuthError = { code?: string; message?: string; status?: number } | null | undefined;
 type StepCustom = { direction: number; reduce: boolean; still?: boolean };
 
+/** コードの再送を待つ秒数。サーバーの送信の制限（60秒に3回）より控えめにする。 */
+const RESEND_SECONDS = 30;
+/** コードの有効時間（auth.ts の expiresIn と揃える） */
+const CODE_MINUTES = 10;
 /** 完了の画面を見せてから移るまでの時間 */
 const REDIRECT_MS = 1200;
 
 const METHOD_LABELS: Record<Method, string> = {
-  password: "メールとパスワード",
+  code: "メールのコード",
   passkey: "パスキー",
   google: "Google",
 };
@@ -71,23 +75,21 @@ function suggestionFor(value: string) {
     ? `${local}@${domainFixes[domain]}`
     : "";
 }
-/** 名前がまだ分からないうちは、メールアドレスの @ の前を名前の代わりにする */
+/** 名前がまだないうちは、メールアドレスの @ の前を名前の代わりにする */
 const nameFromEmail = (email: string) => email.trim().split("@")[0] || "くまもーるん";
 
 function errorText(error: AuthError, fallback: string): string {
   switch (error?.code) {
-    case "INVALID_EMAIL_OR_PASSWORD":
-      return "メールアドレスまたはパスワードが正しくありません";
-    case "USER_ALREADY_EXISTS":
-    case "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL":
-      return "このメールアドレスは登録済みです。ログインしてください";
-    case "PASSWORD_TOO_SHORT":
-      return "パスワードは8文字以上にしてください";
+    case "INVALID_OTP":
+      return "コードが違います。最新のメールのコードを確かめてください";
+    case "OTP_EXPIRED":
+      return "コードの期限が切れました。新しいコードを送ってください";
+    case "TOO_MANY_ATTEMPTS":
+      return "間違いが多すぎました。新しいコードを送ってください";
     case "INVALID_EMAIL":
       return "メールアドレスの形が正しくありません";
-    case "TOO_MANY_REQUESTS":
-      return "試行が多すぎます。少し待ってからもう一度お試しください";
     default:
+      if (error?.status === 429) return "試行が多すぎます。少し待ってからもう一度お試しください";
       return fallback;
   }
 }
@@ -97,7 +99,7 @@ export function safeNext(next: string | null | undefined): string {
   return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
 }
 
-// ここから下の stepMotion と useStepHeight は、ブロックの sign-in.tsx と同じ。
+// ここから下の stepMotion、roll、RollingTime、useStepHeight は、ブロックの sign-in.tsx と同じ。
 const stepMotion: Variants = {
   enter: ({ direction, reduce, still }: StepCustom) =>
     still
@@ -135,6 +137,55 @@ const stepMotion: Variants = {
           },
         },
 };
+
+/** 秒は、数えている間は下へ、新しいコードで数え直すと上へ転がる */
+const roll: Variants = {
+  enter: (direction: number) => ({
+    opacity: 0,
+    y: `${-0.7 * direction}em`,
+    filter: `blur(${motionTokens.blur.subtle}px)`,
+  }),
+  center: { opacity: 1, y: 0, filter: "blur(0px)" },
+  exit: (direction: number) => ({
+    opacity: 0,
+    y: `${0.7 * direction}em`,
+    filter: `blur(${motionTokens.blur.subtle}px)`,
+  }),
+};
+
+function RollingTime({ seconds, reduce }: { seconds: number; reduce: boolean }) {
+  const [shown, setShown] = useState({ seconds, direction: 1 });
+  if (shown.seconds !== seconds) setShown({ seconds, direction: seconds < shown.seconds ? 1 : -1 });
+  const text = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const transition: Transition = reduce
+    ? { duration: 0 }
+    : {
+        y: motionTokens.spring.snappy,
+        opacity: { duration: motionTokens.duration.fast },
+        filter: { duration: motionTokens.duration.fast },
+      };
+  return (
+    <span className={styles.time}>
+      {text.split("").map((character, index) => (
+        <span key={index} className={styles.timeColumn}>
+          <AnimatePresence initial={false} mode="popLayout" custom={shown.direction}>
+            <motion.span
+              key={character}
+              custom={shown.direction}
+              variants={roll}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={transition}
+            >
+              {character}
+            </motion.span>
+          </AnimatePresence>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /** 段階が変わる間だけ、カードの高さをばねで追わせる。それ以外は auto のままにする。 */
 function useStepHeight(step: Step, reduce: boolean) {
@@ -216,26 +267,25 @@ function GoogleLogo() {
 export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; next: string }) {
   const id = useId();
   const reduce = !!useReducedMotion();
-  const [mode, setMode] = useState<Mode>("signIn");
   const [step, setStep] = useState<Step>("email");
   const [direction, setDirection] = useState(1);
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
   const [touched, setTouched] = useState(false);
   const [attempted, setAttempted] = useState(false);
+  const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | Method>(null);
+  const [resendIn, setResendIn] = useState(RESEND_SECONDS);
+  const [busy, setBusy] = useState<null | "send" | Method>(null);
   const [account, setAccount] = useState<Account>({ name: "", email: "" });
-  const [method, setMethod] = useState<Method>("password");
+  const [method, setMethod] = useState<Method>("code");
   const [status, setStatus] = useState("");
   const emailRef = useRef<HTMLInputElement>(null);
-  const passwordRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLDivElement>(null);
   const doneRef = useRef<HTMLHeadingElement>(null);
-  const focusNext = useRef<"email" | "password" | "done" | null>(null);
+  const focusNext = useRef<"email" | "done" | null>(null);
   const { track, height } = useStepHeight(step, reduce);
 
-  const signUp = mode === "signUp";
   const emailError =
     (touched || attempted) && !isEmail(email)
       ? email.trim()
@@ -267,13 +317,18 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
   };
 
   useEffect(() => {
+    if (step !== "code" || resendIn <= 0) return;
+    const timer = window.setTimeout(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [step, resendIn]);
+
+  useEffect(() => {
     const target = focusNext.current;
     focusNext.current = null;
     if (target === "email") {
       emailRef.current?.focus();
       emailRef.current?.select();
     }
-    if (target === "password") passwordRef.current?.focus();
     if (target === "done") doneRef.current?.focus();
   }, [step]);
 
@@ -283,17 +338,12 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
     return () => window.clearTimeout(timer);
   }, [step, next]);
 
-  function go(to: Step, towards: number, focus: "email" | "password" | "done" | null = null) {
+  function go(to: Step, towards: number, focus: "email" | "done" | null = null) {
     focusNext.current = focus;
     setDirection(towards);
     setStep(to);
   }
-
-  function fail(err: AuthError, fallback: string) {
-    setBusy(null);
-    setError(errorText(err, fallback));
-    setStatus("うまくいきませんでした");
-  }
+  const focusCode = () => codeRef.current?.querySelector("input")?.focus();
 
   function complete(next: Account, how: Method) {
     setBusy(null);
@@ -301,20 +351,25 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
     setAccount(next);
     setMethod(how);
     go("done", 1, "done");
-    setStatus(signUp ? "登録しました" : `${METHOD_LABELS[how]}でログインしました`);
+    setStatus(`${METHOD_LABELS[how]}でログインしました`);
   }
 
-  /** パスキーや Google では名前を入れないので、ログインできた後にセッションから読む */
+  /** パスキーではメールアドレスを入れないので、ログインできた後にセッションから読む */
   async function completeFromSession(how: Method) {
     const { data } = await authClient.getSession();
     const user = data?.user;
-    complete(
-      { name: user?.name || nameFromEmail(user?.email ?? ""), email: user?.email ?? "" },
-      how,
-    );
+    complete({ name: user?.name ?? "", email: user?.email ?? "" }, how);
   }
 
-  function submitEmail(event: FormEvent<HTMLFormElement>) {
+  async function sendCode() {
+    const { error } = await authClient.emailOtp.sendVerificationOtp({
+      email: email.trim(),
+      type: "sign-in",
+    });
+    return error;
+  }
+
+  async function submitEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     setAttempted(true);
@@ -322,38 +377,74 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
       emailRef.current?.focus();
       return;
     }
+    setBusy("send");
     setError(null);
-    setPassword("");
-    go("password", 1, "password");
-    setStatus(signUp ? "名前とパスワードを決めてください" : "パスワードを入れてください");
-  }
-
-  async function submitPassword(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy) return;
-    if (password.length < 8) {
-      setError("パスワードは8文字以上です");
-      passwordRef.current?.focus();
+    setStatus("コードを送っています");
+    const failed = await sendCode();
+    setBusy(null);
+    if (failed) {
+      setError(errorText(failed, "コードを送れませんでした。少し待ってからお試しください"));
+      setStatus("送れませんでした");
       return;
     }
-    setBusy("password");
-    setError(null);
-    setStatus(signUp ? "登録しています" : "確かめています");
-    const trimmed = email.trim();
-    if (signUp) {
-      const displayName = name.trim() || nameFromEmail(trimmed);
-      const { error } = await authClient.signUp.email({
-        email: trimmed,
-        password,
-        name: displayName,
-      });
-      if (error) return fail(error, "登録できませんでした");
-      complete({ name: displayName, email: trimmed }, "password");
-    } else {
-      const { data, error } = await authClient.signIn.email({ email: trimmed, password });
-      if (error) return fail(error, "ログインできませんでした");
-      complete({ name: data?.user.name || nameFromEmail(trimmed), email: trimmed }, "password");
+    setAccount({ name: "", email: email.trim() });
+    setCode("");
+    setCodeError("");
+    setResendIn(RESEND_SECONDS);
+    go("code", 1);
+    setStatus("コードを送りました");
+  }
+
+  async function verify(value: string) {
+    if (busy) return;
+    if (value.length < 6) {
+      setCodeError("6桁すべてを入れてください");
+      focusCode();
+      return;
     }
+    setBusy("code");
+    setStatus("コードを確かめています");
+    const { data, error } = await authClient.signIn.emailOtp({ email: account.email, otp: value });
+    if (error) {
+      setBusy(null);
+      setCode("");
+      setCodeError(errorText(error, "コードを確かめられませんでした"));
+      setStatus("コードが合いませんでした");
+      focusCode();
+      return;
+    }
+    complete({ name: data?.user.name ?? "", email: account.email }, "code");
+  }
+
+  function changeCode(value: string) {
+    if (busy) return;
+    setCode(value);
+    if (codeError && value) setCodeError("");
+    if (value.length === 6) void verify(value);
+  }
+
+  async function resend() {
+    if (busy || resendIn > 0) return;
+    setBusy("send");
+    setCode("");
+    setCodeError("");
+    const failed = await sendCode();
+    setBusy(null);
+    if (failed) {
+      setCodeError(errorText(failed, "コードを送れませんでした。少し待ってからお試しください"));
+      return;
+    }
+    setResendIn(RESEND_SECONDS);
+    setStatus("新しいコードを送りました");
+    focusCode();
+  }
+
+  function changeEmail() {
+    if (busy) return;
+    setAttempted(false);
+    setError(null);
+    go("email", -1, "email");
+    setStatus("メールアドレスを直せます");
   }
 
   async function signInWithPasskey() {
@@ -362,7 +453,12 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
     setError(null);
     setStatus("パスキーを待っています");
     const response = await authClient.signIn.passkey();
-    if (response?.error) return fail(response.error, "パスキーでログインできませんでした");
+    if (response?.error) {
+      setBusy(null);
+      setError(errorText(response.error, "パスキーでログインできませんでした"));
+      setStatus("うまくいきませんでした");
+      return;
+    }
     await completeFromSession("passkey");
   }
 
@@ -377,37 +473,24 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
       callbackURL: next,
       errorCallbackURL: "/",
     });
-    if (error) fail(error, "Google でログインできませんでした");
-  }
-
-  function changeEmail() {
-    if (busy) return;
-    setAttempted(false);
-    setError(null);
-    go("email", -1, "email");
-    setStatus("メールアドレスを直せます");
-  }
-
-  function switchMode() {
-    if (busy) return;
-    setMode(signUp ? "signIn" : "signUp");
-    setError(null);
-    setAttempted(false);
-    if (step !== "email") go("email", -1, "email");
-    setStatus(signUp ? "ログインに切り替えました" : "新しい登録に切り替えました");
+    if (error) {
+      setBusy(null);
+      setError(errorText(error, "Google でログインできませんでした"));
+      setStatus("うまくいきませんでした");
+    }
   }
 
   const displayName = account.name || nameFromEmail(account.email);
 
   return (
-    <section className={styles.signIn} aria-label={signUp ? "新しく登録" : "ログイン"}>
+    <section className={styles.signIn} aria-label="ログイン">
       <LayoutGroup id={id}>
         <motion.div className={styles.viewport} style={{ height }}>
           <div ref={track} className={styles.track}>
             <AnimatePresence mode="popLayout" initial={false} custom={custom}>
               {step === "email" && (
                 <motion.div
-                  key={`email-${mode}`}
+                  key="email"
                   className={styles.step}
                   custom={custom}
                   variants={stepMotion}
@@ -416,12 +499,8 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                   exit="exit"
                 >
                   <div className={styles.heading}>
-                    <h2>{signUp ? "新しく登録" : "くまもーるんにログイン"}</h2>
-                    <p>
-                      {signUp
-                        ? "アプリと同じアカウントで、守り状態を見られるようになります。"
-                        : "今の守り状態を見るには、ログインしてください。"}
-                    </p>
+                    <h2>くまもーるんにログイン</h2>
+                    <p>メールアドレスに、6桁のコードを送ります。</p>
                   </div>
                   <form className={styles.form} onSubmit={submitEmail} noValidate>
                     <div className={styles.fieldGroup}>
@@ -430,11 +509,12 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                         label="メールアドレス"
                         type="email"
                         inputMode="email"
-                        autoComplete="username webauthn"
+                        autoComplete="email webauthn"
                         autoCapitalize="none"
                         spellCheck={false}
                         placeholder="name@example.com"
                         value={email}
+                        readOnly={busy === "send"}
                         error={emailError}
                         onChange={(event) => setEmail(event.target.value)}
                         onBlur={() => {
@@ -477,41 +557,35 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                         )}
                       </AnimatePresence>
                     </div>
-                    <Button type="submit" className={styles.wide}>
-                      次へ
+                    <Button type="submit" className={styles.wide} loading={busy === "send"}>
+                      コードを送る
                     </Button>
                   </form>
-                  {(!signUp || providers.length > 0) && (
-                    <>
-                      <div className={styles.divider}>または</div>
-                      <div className={styles.alternatives}>
-                        {!signUp && (
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            className={styles.wide}
-                            loading={busy === "passkey"}
-                            onClick={signInWithPasskey}
-                          >
-                            <KeyRound size={16} strokeWidth={1.75} aria-hidden="true" />
-                            パスキーでログイン
-                          </Button>
-                        )}
-                        {providers.includes("google") && (
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            className={styles.wide}
-                            loading={busy === "google"}
-                            onClick={signInWithGoogle}
-                          >
-                            <GoogleLogo />
-                            Google で続ける
-                          </Button>
-                        )}
-                      </div>
-                    </>
-                  )}
+                  <div className={styles.divider}>または</div>
+                  <div className={styles.alternatives}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className={styles.wide}
+                      loading={busy === "passkey"}
+                      onClick={signInWithPasskey}
+                    >
+                      <KeyRound size={16} strokeWidth={1.75} aria-hidden="true" />
+                      パスキーでログイン
+                    </Button>
+                    {providers.includes("google") && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className={styles.wide}
+                        loading={busy === "google"}
+                        onClick={signInWithGoogle}
+                      >
+                        <GoogleLogo />
+                        Google で続ける
+                      </Button>
+                    )}
+                  </div>
                   <Alert
                     tone="danger"
                     title={error ?? ""}
@@ -521,9 +595,9 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                 </motion.div>
               )}
 
-              {step === "password" && (
+              {step === "code" && (
                 <motion.div
-                  key="password"
+                  key="code"
                   className={styles.step}
                   custom={custom}
                   variants={stepMotion}
@@ -532,12 +606,8 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                   exit="exit"
                 >
                   <div className={styles.heading}>
-                    <h2>{signUp ? "パスワードを決める" : "パスワードを入力"}</h2>
-                    <p>
-                      {signUp
-                        ? "8文字以上のパスワードを決めてください。名前はサイトの表示にだけ使います。"
-                        : "このアカウントのパスワードを入れてください。"}
-                    </p>
+                    <h2>メールを確かめてください</h2>
+                    <p>届いた6桁のコードを入れてください。{CODE_MINUTES}分で失効します。</p>
                   </div>
                   <div className={styles.identity}>
                     <motion.span
@@ -546,12 +616,12 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                       transition={avatarTransition}
                     >
                       <Avatar
-                        name={(signUp && name.trim()) || nameFromEmail(email)}
+                        name={nameFromEmail(account.email)}
                         size="xl"
                         className={styles.avatarFill}
                       />
                     </motion.span>
-                    <span className={styles.identityEmail}>{email.trim()}</span>
+                    <span className={styles.identityEmail}>{account.email}</span>
                     <Button
                       type="button"
                       variant="ghost"
@@ -562,45 +632,76 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                       変更
                     </Button>
                   </div>
-                  <form className={styles.form} onSubmit={submitPassword} noValidate>
-                    {signUp && (
-                      <Input
-                        label="名前"
-                        description="空なら、メールアドレスの @ の前を使います。"
-                        autoComplete="nickname"
-                        maxLength={50}
-                        value={name}
-                        onChange={(event) => setName(event.target.value)}
+                  <form
+                    className={styles.form}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void verify(code);
+                    }}
+                    noValidate
+                  >
+                    <div ref={codeRef}>
+                      <OtpInput
+                        label="ログインコード"
+                        description="届かないときは、迷惑メールのフォルダも見てください。"
+                        value={code}
+                        onChange={changeCode}
+                        error={codeError}
+                        autoFocus
                       />
-                    )}
-                    <PasswordField
-                      ref={passwordRef}
-                      label="パスワード"
-                      description={signUp ? "8文字以上" : undefined}
-                      autoComplete={signUp ? "new-password" : "current-password"}
-                      minLength={8}
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                    />
-                    {/* パスワードの管理アプリが、どのアカウントか分かるようにする */}
-                    <input
-                      type="email"
-                      name="email"
-                      autoComplete="username"
-                      value={email.trim()}
-                      readOnly
-                      hidden
-                    />
-                    <Button type="submit" className={styles.wide} loading={busy === "password"}>
-                      {signUp ? "登録" : "ログイン"}
+                    </div>
+                    <Button type="submit" className={styles.wide} loading={busy === "code"}>
+                      ログイン
                     </Button>
                   </form>
-                  <Alert
-                    tone="danger"
-                    title={error ?? ""}
-                    open={error !== null}
-                    onDismiss={() => setError(null)}
-                  />
+                  <button
+                    type="button"
+                    className={styles.resend}
+                    aria-disabled={resendIn > 0 || busy !== null || undefined}
+                    aria-label={
+                      resendIn > 0 ? `コードの再送は${resendIn}秒後にできます` : "コードを再送する"
+                    }
+                    onClick={resend}
+                  >
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      <motion.span
+                        key={resendIn > 0 ? "wait" : "ready"}
+                        className={styles.resendLabel}
+                        initial={
+                          reduce
+                            ? { opacity: 0 }
+                            : { opacity: 0, y: 6, filter: `blur(${motionTokens.blur.soft}px)` }
+                        }
+                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                        exit={
+                          reduce
+                            ? { opacity: 0, transition: { duration: 0 } }
+                            : {
+                                opacity: 0,
+                                y: -4,
+                                filter: `blur(${motionTokens.blur.subtle}px)`,
+                                transition: { duration: motionTokens.duration.fast },
+                              }
+                        }
+                        transition={
+                          reduce
+                            ? { duration: motionTokens.duration.instant }
+                            : {
+                                duration: motionTokens.duration.standard,
+                                ease: motionTokens.ease.enter,
+                              }
+                        }
+                      >
+                        {resendIn > 0 ? (
+                          <>
+                            コードの再送まで <RollingTime seconds={resendIn} reduce={reduce} />
+                          </>
+                        ) : (
+                          "コードを再送する"
+                        )}
+                      </motion.span>
+                    </AnimatePresence>
+                  </button>
                 </motion.div>
               )}
 
@@ -638,7 +739,7 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                     <motion.span
                       layoutId="account-avatar"
                       className={`${styles.avatarMover} ${styles.avatarLarge}`}
-                      initial={method === "password" || reduce ? false : { opacity: 0, scale: 0.7 }}
+                      initial={method === "code" || reduce ? false : { opacity: 0, scale: 0.7 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={avatarTransition}
                     >
@@ -656,15 +757,13 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
                   </div>
                   <motion.div className={styles.heading} {...rise(0)}>
                     <h2 ref={doneRef} tabIndex={-1}>
-                      {signUp
-                        ? `ようこそ、${displayName}さん`
-                        : `おかえりなさい、${displayName}さん`}
+                      ようこそ、{displayName}さん
                     </h2>
                     <p className={styles.email}>{account.email}</p>
                   </motion.div>
                   <motion.dl className={styles.details} {...rise(1)}>
                     <div>
-                      <dt>{signUp ? "登録の方法" : "ログインの方法"}</dt>
+                      <dt>ログインの方法</dt>
                       <dd>{METHOD_LABELS[method]}</dd>
                     </div>
                     <div>
@@ -724,12 +823,7 @@ export function AuthScreen({ providers, next }: { providers: OAuthProvider[]; ne
           </AnimatePresence>
         </span>
         {step !== "done" && (
-          <span className={styles.switch}>
-            {signUp ? "登録済みの方は " : "アカウントがない方は "}
-            <button type="button" className={styles.textButton} onClick={switchMode}>
-              {signUp ? "ログイン" : "新しく登録"}
-            </button>
-          </span>
+          <span className={styles.switch}>はじめての方も、同じ手順で登録できます</span>
         )}
       </footer>
     </section>

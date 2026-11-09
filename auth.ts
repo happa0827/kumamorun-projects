@@ -1,6 +1,11 @@
+// 認証は3つだけ: Google（OAuth）、メールの6桁のコード（OTP）、パスキー。パスワードは使わない。
+// 初めてのメールアドレスは、OTP でのログインがそのまま登録になる。
+// パスキーはログインした後に設定から足す（パスキーだけでは登録できない）。
 import { passkey } from "@better-auth/passkey";
+import { emailOTP } from "better-auth/plugins";
 import { defineAuth } from "void/auth";
 import { socialProviders } from "./src/oauth";
+import { OTP_EXPIRES_MINUTES, sendOtpMail } from "./src/server/otp-mail";
 
 export default defineAuth(({ defaults, env }) => ({
   ...defaults,
@@ -24,10 +29,19 @@ export default defineAuth(({ defaults, env }) => ({
       else console.log(line);
     },
   },
-  emailAndPassword: {
-    ...defaults.emailAndPassword,
-    enabled: true,
-    minPasswordLength: 8,
+  emailAndPassword: { ...defaults.emailAndPassword, enabled: false },
+  account: {
+    // Google のメールアドレスが、OTP で作ったアカウントと同じなら、同じアカウントにつなぐ
+    accountLinking: { enabled: true, trustedProviders: ["google"] },
   },
-  plugins: [passkey({ rpName: "くまもーるん" })],
+  plugins: [
+    emailOTP({
+      otpLength: 6,
+      expiresIn: OTP_EXPIRES_MINUTES * 60,
+      allowedAttempts: 3,
+      storeOTP: "hashed",
+      sendVerificationOTP: sendOtpMail,
+    }),
+    passkey({ rpName: "くまもーるん" }),
+  ],
 }));
