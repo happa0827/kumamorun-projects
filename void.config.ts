@@ -7,6 +7,14 @@ export default defineConfig({
   worker: {
     compatibility_date: "2026-02-24",
   },
+  // 公開のしかた。書いておかないと、Void は今の Worker の設定を引き継げずにデプロイを止める。
+  // 独自ドメインはないので、workers.dev（https://kumamorun-project.happa-q6-6p.workers.dev）だけで出す。
+  // preview_urls は、デプロイ時に新しい版を本番に切り替える前の確認に使う。
+  cloudflare: {
+    workers_dev: true,
+    preview_urls: true,
+    routes: [],
+  },
   head: {
     title: "くまもーるん",
     // Arc UI のアクセント色。data-theme（light / dark）は下のスクリプトが描画の前に決める。

@@ -1,6 +1,10 @@
 {
   "version": 1,
-  "source": {},
+  "source": {
+    "workers_dev": true,
+    "preview_urls": true,
+    "routes": []
+  },
   "resolved": {
     "account_id": "4ad545133ba79fd6ea8508770b8cceb3",
     "d1_databases": [
@@ -11,7 +15,10 @@
         "migrations_dir": "./db/migrations"
       }
     ],
-    "name": "kumamorun-project"
+    "name": "kumamorun-project",
+    "workers_dev": true,
+    "preview_urls": true,
+    "routes": []
   },
-  "text": "{\n  \"account_id\": \"4ad545133ba79fd6ea8508770b8cceb3\",\n  \"d1_databases\": [\n    {\n      \"binding\": \"DB\",\n      \"database_name\": \"kumamorun-project-db\",\n      \"database_id\": \"1ab2af78-443b-4fa9-829d-d3b756b2de9d\",\n      \"migrations_dir\": \"./db/migrations\"\n    }\n  ],\n  \"name\": \"kumamorun-project\"\n}\n"
+  "text": "{\n  \"account_id\": \"4ad545133ba79fd6ea8508770b8cceb3\",\n  \"d1_databases\": [\n    {\n      \"binding\": \"DB\",\n      \"database_name\": \"kumamorun-project-db\",\n      \"database_id\": \"1ab2af78-443b-4fa9-829d-d3b756b2de9d\",\n      \"migrations_dir\": \"./db/migrations\"\n    }\n  ],\n  \"name\": \"kumamorun-project\",\n  \"workers_dev\": true,\n  \"preview_urls\": true,\n  \"routes\": []\n}\n"
 }
