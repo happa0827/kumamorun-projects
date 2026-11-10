@@ -81,7 +81,33 @@ CREATE TABLE live_status (
   body_json   TEXT NOT NULL,            -- 下の「ライブ状況の形」
   updated_at  INTEGER NOT NULL          -- サーバーが入れる時刻
 );
+
+-- ショップ（サイトだけが使う）。品 [{ id, name, price }] と通知先の宛先。行がなければ既定の品。
+CREATE TABLE shop (
+  account_id         TEXT PRIMARY KEY,
+  items_json         TEXT NOT NULL,
+  notify_emails_json TEXT NOT NULL,
+  updated_at         INTEGER NOT NULL
+);
+
+-- 購入の記録。品の名前と値段は購入時の写し。
+CREATE TABLE purchases (
+  id           TEXT PRIMARY KEY,
+  account_id   TEXT NOT NULL,
+  item_name    TEXT NOT NULL,
+  price        INTEGER NOT NULL CHECK (price >= 1),
+  purchased_at INTEGER NOT NULL
+);
 ```
+
+### ショップと花
+
+旧 `happa0827/kumamorun`（Next.js、「くまもーるん交換所」）のショップは、このサイトの `/shop` に入った。花を使って品を買う。
+
+- 購入は `progress.flowers` を減らす。花が増えるのはアプリの開花（`/evolve`）、減るのはサイトの購入だけ。
+- **アプリへの約束**: 花の数は、サーバーの値を正とする。`/sync` と `/evolve` の応答（409 の `current` を含む）の `flowers` で、手元の値を上書きする。手元で花を数え直して送ることはしない（その API もない）。
+- 購入は花の減算と記録の追加を1つのトランザクションで書く。花が足りなければ `CHECK (flowers >= 0)` で取り消す。
+- 購入の通知メールは、ログインのコードと同じく開発のときだけ送る（本番には送信元のドメインがない）。本番では購入の記録を `/shop` で見る。
 
 ### ライブ状況の形
 

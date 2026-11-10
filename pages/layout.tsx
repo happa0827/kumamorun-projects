@@ -10,15 +10,14 @@ export default function Layout({ children }: { children: ReactNode }) {
     <div className="shell">
       <header className="site-header">
         <Link href="/" className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            🧸
-          </span>
+          <img src="/icon.png" alt="" width={32} height={32} className="brand-mark" />
           くまもーるん
         </Link>
         <div className="header-actions">
           {signedIn && (
             <nav aria-label="メニュー" className="nav">
               <Link href="/">状況</Link>
+              <Link href="/shop">ショップ</Link>
               <Link href="/settings" activeMatch="prefix">
                 設定
               </Link>

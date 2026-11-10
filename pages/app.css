@@ -1,5 +1,12 @@
 /* サイト全体の配置。色、角丸、文字の大きさは Arc UI のトークン（foundation.css）だけを使う。 */
 
+/* 幅に余白と枠を含める。ないと width: 100% の入力欄が列からはみ出し、隣の欄に重なる。 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   --font-geist: "Geist";
   --font-inter: "Inter", "Noto Sans JP";
@@ -43,8 +50,10 @@ body {
 }
 
 .brand-mark {
-  font-size: 1.4rem;
-  line-height: 1;
+  display: block;
+  width: 2rem;
+  height: 2rem;
+  object-fit: contain;
 }
 
 .header-actions {
@@ -302,6 +311,60 @@ tbody tr {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* ショップ */
+.shop-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.flower-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 1rem 0.35rem 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+}
+
+.flower-icon {
+  display: block;
+  flex: none;
+  object-fit: contain;
+}
+
+.flower-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.shop-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 品の設定の1行: 名前、花、消す */
+.item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem auto;
+  align-items: start;
+  gap: 0.5rem;
+}
+
+.item-row > button {
+  margin-top: 1.6rem;
 }
 
 @media (max-width: 30rem) {

@@ -89,6 +89,35 @@ expect 200 "サイトから読む" -b "$JAR" "$B/api/status"
 check "すぐに停止、本文は残る" '.appRunning == false and .status.phase == "offline" and .status.label == "遊び"'
 expect 401 "ログインなしの状況" "$B/api/status"
 
+echo "== ショップ（花 9 から）"
+S=(-b "$JAR" "${H[@]}")
+expect 200 "ショップの画面" -b "$JAR" "$B/shop"
+expect 401 "ログインなしの購入" "${H[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"default-1","expectedPrice":2}'
+expect 422 "値段 0 の品" "${S[@]}" -X PUT "$B/api/shop/items" -d '{"items":[{"id":"a","name":"無料","price":0}]}'
+expect 422 "6つの品" "${S[@]}" -X PUT "$B/api/shop/items" -d "{\"items\":$(jq -nc '[range(6) | {id: "i\(.)", name: "品", price: 1}]')}"
+expect 422 "同じ ID の品" "${S[@]}" -X PUT "$B/api/shop/items" -d '{"items":[{"id":"a","name":"x","price":1},{"id":"a","name":"y","price":1}]}'
+expect 200 "品の保存" "${S[@]}" -X PUT "$B/api/shop/items" -d '{"items":[{"id":"a","name":"テスト","price":4},{"id":"b","name":"高い品","price":50}]}'
+expect 404 "ない品" "${S[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"default-1","expectedPrice":2}'
+expect 409 "値段が変わった" "${S[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"a","expectedPrice":3}'
+check "price_changed と今の花" '.error == "price_changed" and .flowers == 9'
+expect 409 "花が足りない" "${S[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"b","expectedPrice":50}'
+check "insufficient" '.error == "insufficient" and .flowers == 9'
+expect 422 "不正な通知先" "${S[@]}" -X PUT "$B/api/shop/notify-emails" -d '{"emails":["not-an-email"]}'
+expect 200 "通知先の保存" "${S[@]}" -X PUT "$B/api/shop/notify-emails" -d '{"emails":["parent@example.com"]}'
+curl -s -o /dev/null -X DELETE "${INBOX[@]}"
+expect 200 "購入" "${S[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"a","expectedPrice":4}'
+check "花 5、記録、通知" '.flowers == 5 and .purchase.itemName == "テスト" and .purchase.price == 4 and .notified == true'
+if curl -s "${INBOX[@]}" | grep -q '購入通知'; then echo "ok      受け箱に購入通知が届いた"; else echo "NG      受け箱に購入通知が届かない"; FAIL=$((FAIL+1)); fi
+echo "-- 同時に5回の購入（花 5、値段 4。成功は1回だけ）"
+RESULTS=$(for i in $(seq 5); do curl -s -o /dev/null -w '%{http_code}\n' "${S[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"a","expectedPrice":4}' & done; wait)
+OK=$(grep -c '^200$' <<<"$RESULTS"); CONFLICT=$(grep -c '^409$' <<<"$RESULTS")
+if [ "$OK" = 1 ] && [ "$CONFLICT" = 4 ]; then echo "ok      200 が1回、409 が4回"; else echo "NG      200 が $OK 回、409 が $CONFLICT 回"; FAIL=$((FAIL+1)); fi
+eapi 200 "アプリの同期にも反映" GET /sync
+check "花 1" '.flowers == 1'
+expect 200 "品を既定に戻す" "${S[@]}" -X DELETE "$B/api/shop/items"
+check "既定の4つ" '(.items | length) == 4 and .items[0].name == "チョコパイ"'
+if [ "$(curl -s -b "$JAR" "$B/shop" | grep -o 'テスト' | wc -l)" -ge 2 ]; then echo "ok      画面に購入の記録が出る"; else echo "NG      画面に購入の記録が出ない"; FAIL=$((FAIL+1)); fi
+
 echo "== 端末の失効"
 expect 200 "2台目のコード" -b "$JAR" "${H[@]}" -X POST "$B/api/login-code"
 CODE2=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')

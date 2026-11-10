@@ -2,7 +2,7 @@
 // 認証のテーブル（ユーザー、セッション、パスキー、OAuth）は Void が作る。account_id はその user.id を指す。
 // 時刻はすべて Unix ミリ秒。
 import { sql } from "void/db";
-import { check, integer, primaryKey, sqliteTable, text } from "void/schema-d1";
+import { check, index, integer, primaryKey, sqliteTable, text } from "void/schema-d1";
 
 /** 端末ごとのトークン。トークンそのものではなく SHA-256 のハッシュを持つ。 */
 export const devices = sqliteTable("devices", {
@@ -54,6 +54,34 @@ export const progress = sqliteTable(
   (t) => [
     check("progress_stage_range", sql`${t.stage} BETWEEN 0 AND 5`),
     check("progress_flowers_nonnegative", sql`${t.flowers} >= 0`),
+  ],
+);
+
+/**
+ * ショップ（旧 happa0827/kumamorun の交換所）の設定。アカウントにつき1行。サイトだけが使い、アプリは読まない。
+ * 行がなければ既定の品（src/server/shop.ts の DEFAULT_ITEMS）を使う。
+ * items_json は [{ id, name, price }]、notify_emails_json は購入を知らせる宛先の配列。形は src/server/shop.ts が検証する。
+ */
+export const shop = sqliteTable("shop", {
+  accountId: text("account_id").primaryKey(),
+  itemsJson: text("items_json").notNull(),
+  notifyEmailsJson: text("notify_emails_json").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** 購入の記録。品の名前と値段は購入したときの写しを持つ（あとで品を変えても記録は変わらない）。 */
+export const purchases = sqliteTable(
+  "purchases",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    itemName: text("item_name").notNull(),
+    price: integer("price").notNull(),
+    purchasedAt: integer("purchased_at").notNull(),
+  },
+  (t) => [
+    index("purchases_account_time").on(t.accountId, t.purchasedAt),
+    check("purchases_price_positive", sql`${t.price} >= 1`),
   ],
 );
 
