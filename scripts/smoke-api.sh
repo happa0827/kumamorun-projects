@@ -167,8 +167,8 @@ else
 fi
 
 echo "== 家族（親、親が作った子供、招待で入った子供と親）"
-PJAR=$(mktemp); CJAR=$(mktemp); GJAR=$(mktemp); QJAR=$(mktemp); XJAR=$(mktemp)
-trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR"' EXIT
+PJAR=$(mktemp); CJAR=$(mktemp); GJAR=$(mktemp); QJAR=$(mktemp); XJAR=$(mktemp); AJAR=$(mktemp); NJAR=$(mktemp)
+trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$AJAR" "$NJAR"' EXIT
 signup "$PJAR" "parent-$EMAIL"
 expect 200 "親を選ぶ（家族を作る）" -b "$PJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"parent"}'
 expect 403 "大人は子供を作れない" -b "$JAR" "${H[@]}" -X POST "$B/api/auth/family/add-child" -d '{"name":"x"}'
@@ -266,9 +266,54 @@ expect 204 "親が、親が作った子供の端末を失効" -b "$PJAR" "${H[@]
 expect 401 "失効した子供の端末" -H "Authorization: Bearer $CTOKEN" "$B/api/app/v1/sync"
 expect 204 "2人目の親が、Google の子供の端末を失効" -b "$QJAR" "${H[@]}" -X DELETE "$B/api/devices/$GDEV"
 expect 401 "失効した Google の子供の端末" -H "Authorization: Bearer $GTOKEN" "$B/api/app/v1/sync"
+echo "-- ログインリンクがほかの人に開かれたとき、親が子供をすべての端末からログアウトさせる"
+expect 403 "ほかのサイトからのリンクでのログイン（Cookie なし）" -H 'Content-Type: application/json' -H 'Origin: https://evil.example' -X POST "$B/api/auth/family/child-sign-in" -d '{"code":"x"}'
+expect 200 "子供のログインリンク（漏れる）" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
+ALCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+expect 200 "ほかの人がリンクで先にログイン" -c "$AJAR" -b "$AJAR" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$ALCODE\"}"
+expect 200 "入った人がアプリの端末を作る" -b "$AJAR" "${H[@]}" -X POST "$B/api/login-code"
+ACODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+ATOKEN=$(curl -s "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$ACODE\",\"deviceName\":\"INTRUDER-PC\"}" | jq -r .token)
+expect 200 "入った人が、まだ使っていないアプリのコードも持つ" -b "$AJAR" "${H[@]}" -X POST "$B/api/login-code"
+ACODE2=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+expect 200 "入った人のリンク（まだ使っていない）" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
+ALCODE2=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+# パスキーは curl では登録できないので、ローカルの D1 に行だけ入れる
+vp exec void db execute "INSERT INTO passkey (id, publicKey, userId, credentialID, counter, deviceType, backedUp) VALUES ('smoke-$CHILD', 'x', '$CHILD', 'smoke-cred-$CHILD', 0, 'singleDevice', 0)" >/dev/null 2>&1
+# passkeys <ID>  ローカルの D1 で、そのユーザーのパスキーの数
+passkeys() { vp exec void db execute "SELECT count(*) AS n FROM passkey WHERE userId = '$1'" 2>/dev/null | grep -xE '[0-9]+'; }
+if [ "$(passkeys "$CHILD")" = 1 ]; then echo "ok      子供のパスキーがある（ログアウトの前）"; else echo "NG      子供のパスキーを入れられない"; FAIL=$((FAIL+1)); fi
+expect 404 "大人は子供をログアウトさせられない" -b "$JAR" "${H[@]}" -X POST "$B/api/auth/family/sign-out-child" -d "{\"childId\":\"$CHILD\"}"
+expect 404 "子供は自分でこの経路を使えない" -b "$CJAR" "${H[@]}" -X POST "$B/api/auth/family/sign-out-child" -d "{\"childId\":\"$CHILD\"}"
+expect 404 "Google の子供はログアウトさせられない" -b "$PJAR" "${H[@]}" -X POST "$B/api/auth/family/sign-out-child" -d "{\"childId\":\"$GID\"}"
+expect 200 "2人目の親が子供をすべての端末からログアウト" -b "$QJAR" "${H[@]}" -X POST "$B/api/auth/family/sign-out-child" -d "{\"childId\":\"$CHILD\"}"
+expect 200 "入った人のセッション" -b "$AJAR" "$B/api/auth/get-session"
+check "入った人はログアウトしている" '. == null'
+expect 200 "子供のセッション" -b "$CJAR" "$B/api/auth/get-session"
+check "子供もログアウトしている" '. == null'
+expect 401 "入った人のアプリの端末" -H "Authorization: Bearer $ATOKEN" "$B/api/app/v1/sync"
+expect 401 "入った人のアプリのコード" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$ACODE2\",\"deviceName\":\"INTRUDER-2\"}"
+expect 401 "まだ使っていないログインリンク" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$ALCODE2\"}"
+if [ "$(passkeys "$CHILD")" = 0 ]; then echo "ok      子供のパスキーが消えた"; else echo "NG      子供のパスキーが残っている"; FAIL=$((FAIL+1)); fi
+expect 200 "Google の子供のセッションはそのまま" -b "$GJAR" "$B/api/auth/get-session"
+check "Google の子供" ".user.id == \"$GID\""
+expect 200 "新しいリンク" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
+NLCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+expect 200 "子供は新しいリンクでログインし直せる" -c "$CJAR" -b "$CJAR" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$NLCODE\"}"
+echo "-- 前から使っていた人が招待で子供になっても、決めていた通知先は残る"
+signup "$NJAR" "notify-$EMAIL"
+curl -s -o /dev/null -b "$NJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"adult"}'
+expect 200 "大人のときの通知先" -b "$NJAR" "${H[@]}" -X PUT "$B/api/shop/notify-emails" -d '{"emails":["own-choice@example.com"]}'
+NID=$(curl -s -b "$NJAR" "$B/api/auth/get-session" | jq -r .user.id)
+# 「種類ができる前」の利用者に戻す（ローカルの D1 だけ）
+vp exec void db execute "DELETE FROM members WHERE account_id = '$NID'" >/dev/null 2>&1
+NINVITE=$(curl -s -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"child"}' | jq -r .code)
+expect 200 "招待コードで子供になる" -b "$NJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$NINVITE\"}"
+expect 200 "親が子供のショップを開く" -b "$PJAR" "$B/shop?child=$NID"
+if grep -q 'own-choice@example.com' <<<"$BODY" && ! grep -q "parent-$EMAIL" <<<"$BODY"; then echo "ok      決めていた通知先が残る"; else echo "NG      通知先が上書きされた"; FAIL=$((FAIL+1)); fi
 
 echo "== 種類ができる前からの利用者（端末あり）が親を選ぶ"
-LJAR=$(mktemp); trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$LJAR"' EXIT
+LJAR=$(mktemp); trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$AJAR" "$NJAR" "$LJAR"' EXIT
 signup "$LJAR" "legacy-$EMAIL"
 curl -s -o /dev/null -b "$LJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"adult"}'
 LCODE=$(curl -s -b "$LJAR" "${H[@]}" -X POST "$B/api/login-code" | jq -r .url | sed 's/.*code=//')

@@ -1,8 +1,9 @@
 // 家族（親だけ）。子供の一覧と追加、子供のログイン、子供の端末の失効、招待コード、親の一覧。
 // 親がログインさせられる（ログインリンク、アプリ）のは、親が作った子供だけ。Google の子供は自分でログインする。
+// 親が作った子供は、ログインリンクが漏れたときなどに、親がすべての端末からログアウトさせられる。
 import { useState } from "react";
 import { Link } from "@void/react";
-import { Copy, Link2, Plus, UserPlus } from "lucide-react";
+import { Copy, Link2, LogOut, Plus, UserPlus } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
 import { Badge } from "@/components/arc/badge/badge";
 import { Button } from "@/components/arc/button/button";
@@ -136,6 +137,9 @@ function ChildCard({ child }: { child: Child }) {
   const [link, setLink] = useState<{ url: string; expiresAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // ログアウトさせると端末も失効するので、端末の一覧はカードで持つ
+  const [devices, setDevices] = useState(child.devices);
   const q = `child=${encodeURIComponent(child.id)}`;
 
   return (
@@ -188,16 +192,51 @@ function ChildCard({ child }: { child: Child }) {
               <Link2 size={16} strokeWidth={1.75} aria-hidden="true" />
               サイトのログインリンクを作る
             </Button>
+            <ConfirmDialog
+              trigger={
+                <Button type="button" variant="danger" size="sm">
+                  <LogOut size={16} strokeWidth={1.75} aria-hidden="true" />
+                  すべての端末からログアウト
+                </Button>
+              }
+              title={`${child.name}を、すべての端末からログアウトさせますか？`}
+              description="ログインリンクをほかの人に開かれたときなどに使います。サイトのログイン、アプリの端末、パスキー、まだ使われていないログインリンクがすべて使えなくなります。子供には、新しいログインリンクでログインし直してもらってください。"
+              confirmLabel="ログアウトさせる"
+              onConfirm={async () => {
+                setError(null);
+                setNotice(null);
+                const response = await fetch("/api/auth/family/sign-out-child", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ childId: child.id }),
+                });
+                if (!response.ok) {
+                  setError(`ログアウトさせられませんでした（${response.status}）`);
+                  return;
+                }
+                setLink(null);
+                setDevices([]);
+                setNotice(
+                  `${child.name}を、すべての端末からログアウトさせました。新しいログインリンクを作って、子供の端末で開いてください`,
+                );
+              }}
+            />
           </div>
         )}
         {link && (
           <CopyField
             label="ログインリンク"
             value={link.url}
-            note={`${time.format(link.expiresAt)}まで、一度だけ使えます。子供の端末で開くと、${child.name}としてログインします。作り直すと、前のリンクは使えなくなります。`}
+            note={`${time.format(link.expiresAt)}まで、一度だけ使えます。子供の端末で開くと、${child.name}としてログインします。作り直すと、前のリンクは使えなくなります。ほかの人に開かれたかもしれないときは、作り直すだけでは足りないので「すべての端末からログアウト」を使ってください。`}
           />
         )}
-        <ChildDevices childName={child.name} initial={child.devices} />
+        <ChildDevices childName={child.name} list={devices} setList={setDevices} />
+        <Alert
+          tone="success"
+          title={notice ?? ""}
+          open={notice !== null}
+          onDismiss={() => setNotice(null)}
+        />
         <Alert
           tone="danger"
           title={error ?? ""}
@@ -210,8 +249,15 @@ function ChildCard({ child }: { child: Child }) {
 }
 
 /** 子供のアプリの端末。パソコンをなくしたときなどに、親が失効できる。 */
-function ChildDevices({ childName, initial }: { childName: string; initial: Child["devices"] }) {
-  const [list, setList] = useState(initial);
+function ChildDevices({
+  childName,
+  list,
+  setList,
+}: {
+  childName: string;
+  list: Child["devices"];
+  setList: React.Dispatch<React.SetStateAction<Child["devices"]>>;
+}) {
   const [error, setError] = useState<string | null>(null);
   if (list.length === 0) return <p className="muted">アプリでログインしている端末はありません。</p>;
   return (

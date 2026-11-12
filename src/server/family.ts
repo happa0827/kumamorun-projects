@@ -1,9 +1,9 @@
 // アカウントの種類（大人、親、子供）と家族。サイトだけが使い、アプリ向け API は種類を見ない。
 // 親は同じ家族の子供のデータ（状況、ショップ）を見て、ショップの品と通知先を決める。
-import { childSignInCodes, familyInvites, members } from "@schema";
-import { and, db, eq, gt, isNull, sql } from "void/db";
+import { childSignInCodes, devices, familyInvites, loginCodes, members } from "@schema";
+import { and, db, eq, exists, gt, isNull, sql } from "void/db";
 import { newInviteCode, newLoginCode, normalizeInviteCode, sha256Hex } from "./secrets";
-import { saveConfig } from "./shop";
+import { setNotifyEmailsIfEmpty } from "./shop";
 
 export type Kind = "adult" | "parent" | "child";
 export type Member = { kind: Kind; familyId: string | null };
@@ -87,10 +87,7 @@ export async function shopEditTarget(
 /** ショップで買えるのは、大人と子供が自分の花で買うときだけ。親は子供の代わりに買わない。 */
 export const canPurchase = (viewer: Member) => viewer.kind !== "parent";
 
-/**
- * 種類を決めて members に書く。すでに行があれば false（種類はあとから変えない）。
- * 子供が家族に入るとき、ショップの通知先がまだなければ、招いた親のメールアドレスを入れる。
- */
+/** 種類を決めて members に書く。すでに行があれば false（種類はあとから変えない）。 */
 async function insertMember(
   accountId: string,
   kind: Kind,
@@ -104,12 +101,16 @@ async function insertMember(
   return inserted.length > 0;
 }
 
+/**
+ * 子供が家族に入るとき、ショップの通知先がまだなければ、招いた親（作った親）のメールアドレスを入れる。
+ * 前から使っていた人が招待で子供になったときは、その人が決めていた通知先を残す（親があとで変えられる）。
+ */
 async function notifyParentByDefault(childId: string, parentId: string) {
   const [parent] = await db.all<{ email: string }>(
     sql`SELECT email FROM "user" WHERE id = ${parentId}`,
   );
   const email = parent && visibleEmail(parent.email);
-  if (email) await saveConfig(childId, { notifyEmails: [email] });
+  if (email) await setNotifyEmailsIfEmpty(childId, [email]);
 }
 
 export type ChooseResult =
@@ -127,29 +128,65 @@ export async function chooseKind(
   return { ok: true, kind };
 }
 
-/** 招待コードで家族に入る。種類（親か子供か）はコードが決める。 */
+/**
+ * 招待コードで家族に入る。種類（親か子供か）はコードが決める。
+ * members に書くことと、コードを使用済みにすることを、1つの batch（トランザクション）で行う。
+ * 先にコードだけ使用済みにすると、そのあいだにほかのタブで種類を選ばれたとき、コードが誰にも使えないまま残る。
+ */
 export async function joinWithInvite(accountId: string, code: string): Promise<ChooseResult> {
   if (await getMember(accountId)) return { ok: false, error: "already_chosen" };
   const now = Date.now();
-  // 未使用で期限内のときだけ使用済みにする。並んだ2回のうち、行が返るのは1回だけ。
-  const [invite] = await db
-    .update(familyInvites)
-    .set({ usedAt: now })
-    .where(
-      and(
-        eq(familyInvites.codeHash, await sha256Hex(normalizeInviteCode(code))),
-        isNull(familyInvites.usedAt),
-        gt(familyInvites.expiresAt, now),
-      ),
-    )
-    .returning({
-      familyId: familyInvites.familyId,
-      kind: familyInvites.kind,
-      createdBy: familyInvites.createdBy,
-    });
-  if (!invite) return { ok: false, error: "invalid_code" };
-  if (!(await insertMember(accountId, invite.kind, invite.familyId)))
-    return { ok: false, error: "already_chosen" };
+  const valid = and(
+    eq(familyInvites.codeHash, await sha256Hex(normalizeInviteCode(code))),
+    isNull(familyInvites.usedAt),
+    gt(familyInvites.expiresAt, now),
+  );
+  const [, used] = await db.batch([
+    // コードが使えるときだけ、コードの種類と家族で members に書く。もう行があれば何もしない。
+    db
+      .insert(members)
+      .select(
+        db
+          .select({
+            accountId: sql<string>`${accountId}`.as("account_id"),
+            kind: familyInvites.kind,
+            familyId: familyInvites.familyId,
+            createdAt: sql<number>`${now}`.as("created_at"),
+          })
+          .from(familyInvites)
+          .where(valid),
+      )
+      .onConflictDoNothing(),
+    // いま書いた行（同じ家族、同じ時刻）があるときだけ、コードを使用済みにする。
+    db
+      .update(familyInvites)
+      .set({ usedAt: now })
+      .where(
+        and(
+          valid,
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(members)
+              .where(
+                and(
+                  eq(members.accountId, accountId),
+                  eq(members.familyId, familyInvites.familyId),
+                  eq(members.createdAt, now),
+                ),
+              ),
+          ),
+        ),
+      )
+      .returning({ kind: familyInvites.kind, createdBy: familyInvites.createdBy }),
+  ]);
+  const [invite] = used;
+  if (!invite) {
+    // コードが使えなかったか、そのあいだに種類が決まっていた
+    return (await getMember(accountId))
+      ? { ok: false, error: "already_chosen" }
+      : { ok: false, error: "invalid_code" };
+  }
   if (invite.kind === "child") await notifyParentByDefault(accountId, invite.createdBy);
   return { ok: true, kind: invite.kind };
 }
@@ -236,6 +273,26 @@ export async function signInAsTarget(
   if (viewer.kind !== "parent") return null;
   const childId = await targetAccount(viewerId, viewer, requested);
   return childId && (await isCreatedChild(childId)) ? childId : null;
+}
+
+/**
+ * 親が作った子供を、すべての端末からログアウトさせる（ログインリンクが漏れて、ほかの人が入ったときなど）。
+ * ここでは、まだ使われていないログインリンクとアプリのログインコードを消し、アプリの端末を失効する。
+ * パスキーとサイトのセッションは Better Auth のテーブルなので、family-auth.ts が Better Auth の adapter で消す。
+ * 子供は、親が新しいログインリンクを作り直して、もう一度ログインする。
+ */
+export async function revokeChildAccess(childId: string) {
+  const now = Date.now();
+  await db.batch([
+    db
+      .delete(childSignInCodes)
+      .where(and(eq(childSignInCodes.accountId, childId), isNull(childSignInCodes.usedAt))),
+    db.delete(loginCodes).where(and(eq(loginCodes.accountId, childId), isNull(loginCodes.usedAt))),
+    db
+      .update(devices)
+      .set({ revokedAt: now })
+      .where(and(eq(devices.accountId, childId), isNull(devices.revokedAt))),
+  ]);
 }
 
 export type InvitePreview = {
