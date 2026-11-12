@@ -30,6 +30,7 @@ const person = (p: { name: string; email: string | null }) =>
 function failure(status: number, action: string) {
   if (status === 400)
     return "招待コードが違うか、期限が切れています。親に新しいコードをもらってください";
+  if (status === 403) return "この家族の子供は、もう上限（20人）です。家族の親に相談してください";
   if (status === 429)
     return "招待コードを試した回数が多すぎます。1時間ほどおいてから、もう一度入れてください";
   return `${action}（${status}）`;

@@ -5,12 +5,14 @@ import type { CloudContext } from "void";
 import { consume } from "./rate-limit";
 
 /**
- * コードは約 8.5×10^11 通りで24時間で失効するので、1時間に10回（アカウント）、30回（IP）なら当てられない。
+ * コードは約 8.5×10^11 通りで24時間で失効するので、1時間に10回（アカウント）、150回（IP）なら当てられない。
  * ふつうは「見る」と「入る」で2回。打ち間違いを何度か直しても、上限には届かない。
+ * IP の上限は、学校や家族で同じ IP を使う人どうしで分け合う。誰かがわざと使い切ると、その IP の全員が1時間待つので、
+ * 総当たりを止めるのはアカウントの上限に任せ、IP の上限はアカウントを作り直して試す形を抑えるだけの緩さにする。
  */
 const WINDOW_MS = 60 * 60 * 1000;
 const MAX_PER_ACCOUNT = 10;
-const MAX_PER_IP = 30;
+const MAX_PER_IP = 150;
 
 /** 1回数える。上限を超えていれば 429 の Response、超えていなければ null。 */
 export async function limitInviteAttempt(c: CloudContext, accountId: string) {

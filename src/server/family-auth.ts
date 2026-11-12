@@ -20,6 +20,8 @@ import { z } from "zod";
 import {
   addCreatedChild,
   consumeChildSignInCode,
+  countChildren,
+  MAX_CHILDREN,
   getMember,
   passkeyUserLabel,
   placeholderChildEmail,
@@ -63,6 +65,9 @@ export const familyAuth = () =>
           const parent = await getMember(parentId);
           if (parent?.kind !== "parent" || !parent.familyId)
             throw new APIError("FORBIDDEN", { message: "parent_only" });
+          // 同時に送られると少し超えうるが、行が増え続けるのを止めるには足りる
+          if ((await countChildren(parent.familyId)) >= MAX_CHILDREN)
+            throw new APIError("CONFLICT", { message: "too_many_children" });
 
           const child = await ctx.context.internalAdapter.createUser(
             { name: ctx.body.name, email: placeholderChildEmail(), emailVerified: false },

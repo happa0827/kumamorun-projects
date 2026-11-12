@@ -82,7 +82,13 @@ function Children({ initial }: { initial: Child[] }) {
           });
           setAdding(false);
           if (!response.ok) {
-            setMessage({ ok: false, text: `追加できませんでした（${response.status}）` });
+            setMessage({
+              ok: false,
+              text:
+                response.status === 409
+                  ? "子供は1つの家族に20人までです"
+                  : `追加できませんでした（${response.status}）`,
+            });
             return;
           }
           const child = (await response.json()) as { id: string; name: string };

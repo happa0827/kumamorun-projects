@@ -11,6 +11,8 @@ export type FamilyPerson = { id: string; name: string; email: string | null; kin
 
 /** 招待コードの有効時間 */
 export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
+/** 1つの家族の子供の上限（親が作る子供と、招待で入る子供を合わせて）。行が増え続けないようにする。 */
+export const MAX_CHILDREN = 20;
 /** 子供のログインリンクの有効時間。親が LINE などで送って、子供が開くまでの余裕を見る。 */
 export const CHILD_SIGN_IN_TTL_MS = 30 * 60 * 1000;
 /** 親が作った子供（Google なし）のメールアドレスの domain。届かない domain（RFC 2606 の .invalid）を使う。 */
@@ -52,6 +54,14 @@ export async function listFamily(familyId: string): Promise<FamilyPerson[]> {
     WHERE m.family_id = ${familyId}
     ORDER BY CASE m.kind WHEN 'parent' THEN 0 ELSE 1 END, m.created_at`);
   return rows.map((r) => ({ ...r, email: visibleEmail(r.email) }));
+}
+
+/** 家族の子供の数 */
+export async function countChildren(familyId: string): Promise<number> {
+  const [row] = await db.all<{ n: number }>(
+    sql`SELECT count(*) AS n FROM members WHERE family_id = ${familyId} AND kind = 'child'`,
+  );
+  return row?.n ?? 0;
 }
 
 export async function listChildren(familyId: string) {
@@ -115,7 +125,7 @@ async function notifyParentByDefault(childId: string, parentId: string) {
 
 export type ChooseResult =
   | { ok: true; kind: Kind }
-  | { ok: false; error: "already_chosen" | "invalid_code" };
+  | { ok: false; error: "already_chosen" | "invalid_code" | "family_full" };
 
 /** 大人になるか、新しい家族を作って親になる。 */
 export async function chooseKind(
@@ -141,8 +151,12 @@ export async function joinWithInvite(accountId: string, code: string): Promise<C
     isNull(familyInvites.usedAt),
     gt(familyInvites.expiresAt, now),
   );
+  const childSlotLeft = sql`(${familyInvites.kind} <> 'child' OR (
+    SELECT count(*) FROM members m WHERE m.family_id = ${familyInvites.familyId} AND m.kind = 'child'
+  ) < ${MAX_CHILDREN})`;
   const [, used] = await db.batch([
     // コードが使えるときだけ、コードの種類と家族で members に書く。もう行があれば何もしない。
+    // 子供のコードは、家族の子供が上限（MAX_CHILDREN）に届いていれば書かない（コードも使わない）。
     db
       .insert(members)
       .select(
@@ -154,7 +168,7 @@ export async function joinWithInvite(accountId: string, code: string): Promise<C
             createdAt: sql<number>`${now}`.as("created_at"),
           })
           .from(familyInvites)
-          .where(valid),
+          .where(and(valid, childSlotLeft)),
       )
       .onConflictDoNothing(),
     // いま書いた行（同じ家族、同じ時刻）があるときだけ、コードを使用済みにする。
@@ -182,10 +196,13 @@ export async function joinWithInvite(accountId: string, code: string): Promise<C
   ]);
   const [invite] = used;
   if (!invite) {
-    // コードが使えなかったか、そのあいだに種類が決まっていた
-    return (await getMember(accountId))
-      ? { ok: false, error: "already_chosen" }
-      : { ok: false, error: "invalid_code" };
+    // そのあいだに種類が決まっていたか、子供が上限か、コードが使えなかった
+    if (await getMember(accountId)) return { ok: false, error: "already_chosen" };
+    const [full] = await db
+      .select({ one: sql`1` })
+      .from(familyInvites)
+      .where(and(valid, sql`NOT ${childSlotLeft}`));
+    return { ok: false, error: full ? "family_full" : "invalid_code" };
   }
   if (invite.kind === "child") await notifyParentByDefault(accountId, invite.createdBy);
   return { ok: true, kind: invite.kind };

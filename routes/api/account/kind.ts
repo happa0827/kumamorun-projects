@@ -3,6 +3,7 @@
 //   { kind: "parent" }  新しい家族を作って親になる
 //   { inviteCode }      招待コードで家族に入る（親か子供かはコードが決める。画面は先に invite-preview で見せる）
 // 成功: { kind }。失敗: 409 already_chosen、400 invalid_code（不明、使用済み、期限切れ）、
+// 403 family_full（子供のコードで、家族の子供が上限。コードは使わない）、
 // 429 too_many_attempts（招待コードを試しすぎた。Retry-After 秒のあとに試せる）。
 import { defineHandler } from "void";
 import { requireAuth } from "void/auth";
@@ -30,5 +31,6 @@ export const POST = defineHandler(async (c) => {
     result = await joinWithInvite(user.id, body.data.inviteCode);
   }
   if (result.ok) return { kind: result.kind };
-  return c.json({ error: result.error }, result.error === "already_chosen" ? 409 : 400);
+  const status = { already_chosen: 409, invalid_code: 400, family_full: 403 } as const;
+  return c.json({ error: result.error }, status[result.error]);
 });

@@ -9,7 +9,9 @@ export type Props = InferProps<typeof loader>;
 export const loader = defineHandler(async (c) => {
   const user = getUser();
   const next = safeNext(c.req.query("next") ?? "/");
-  if (!user) return c.redirect(`/?next=${encodeURIComponent("/welcome")}`);
+  // ログインのあとも、/welcome から元の移動先へ進めるように、next を付けたまま戻す
+  if (!user)
+    return c.redirect(`/?next=${encodeURIComponent(`/welcome?next=${encodeURIComponent(next)}`)}`);
   if (await getMember(user.id)) return c.redirect(next);
   return { name: user.name, next };
 });

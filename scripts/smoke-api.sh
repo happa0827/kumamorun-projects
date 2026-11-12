@@ -68,6 +68,9 @@ for bad in '/%5Cevil.com' '//evil.com' '/%09/evil.com' 'https://evil.com' '/%5C%
 done
 got=$(location "/welcome?next=/shop%3Fchild%3Dx")
 if [ "$got" = "/shop?child=x" ]; then echo "ok      next=/shop?child=x はそのまま"; else echo "NG      next=/shop?child=x が「$got」へ"; FAIL=$((FAIL+1)); fi
+# ログインしていないと、ログイン画面へ移す。ログインのあとに /welcome から元の移動先へ進めるよう、next を残す
+got=$(curl -s -o /dev/null -D - "$B/welcome?next=/shop" | tr -d '\r' | grep -i '^location:' | cut -d' ' -f2-)
+if [ "$got" = "/?next=%2Fwelcome%3Fnext%3D%252Fshop" ]; then echo "ok      ログインなしの /welcome?next=/shop は、next を残してログイン画面へ"; else echo "NG      ログインなしの /welcome?next=/shop が「$got」へ"; FAIL=$((FAIL+1)); fi
 
 echo "== ディープリンクのコード交換"
 expect 200 "コード発行" -b "$JAR" "${H[@]}" -X POST "$B/api/login-code"
@@ -167,8 +170,8 @@ else
 fi
 
 echo "== 家族（親、親が作った子供、招待で入った子供と親）"
-PJAR=$(mktemp); CJAR=$(mktemp); GJAR=$(mktemp); QJAR=$(mktemp); XJAR=$(mktemp); AJAR=$(mktemp); NJAR=$(mktemp)
-trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$AJAR" "$NJAR"' EXIT
+PJAR=$(mktemp); CJAR=$(mktemp); GJAR=$(mktemp); QJAR=$(mktemp); XJAR=$(mktemp); AJAR=$(mktemp); NJAR=$(mktemp); FJAR=$(mktemp); YJAR=$(mktemp)
+trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$AJAR" "$NJAR" "$FJAR" "$YJAR"' EXIT
 signup "$PJAR" "parent-$EMAIL"
 expect 200 "親を選ぶ（家族を作る）" -b "$PJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"parent"}'
 expect 403 "大人は子供を作れない" -b "$JAR" "${H[@]}" -X POST "$B/api/auth/family/add-child" -d '{"name":"x"}'
@@ -319,9 +322,21 @@ NINVITE=$(curl -s -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kin
 expect 200 "招待コードで子供になる" -b "$NJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$NINVITE\"}"
 expect 200 "親が子供のショップを開く" -b "$PJAR" "$B/shop?child=$NID"
 if grep -q 'own-choice@example.com' <<<"$BODY" && ! grep -q "parent-$EMAIL" <<<"$BODY"; then echo "ok      決めていた通知先が残る"; else echo "NG      通知先が上書きされた"; FAIL=$((FAIL+1)); fi
+echo "-- 子供は1つの家族に20人まで（親が作る子供と、招待で入る子供を合わせて）"
+signup "$FJAR" "full-$EMAIL"
+curl -s -o /dev/null -b "$FJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"parent"}'
+FINVITE=$(curl -s -b "$FJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"child"}' | jq -r .code)
+RESULTS=$(for i in $(seq 20); do curl -s -o /dev/null -w '%{http_code}\n' -b "$FJAR" "${H[@]}" -X POST "$B/api/auth/family/add-child" -d "{\"name\":\"子$i\"}"; done)
+if [ "$(grep -c '^200$' <<<"$RESULTS")" = 20 ]; then echo "ok      20人目までは作れる"; else echo "NG      20人目までに 200 以外: $(tr '\n' ' ' <<<"$RESULTS")"; FAIL=$((FAIL+1)); fi
+expect 409 "21人目は作れない" -b "$FJAR" "${H[@]}" -X POST "$B/api/auth/family/add-child" -d '{"name":"子21"}'
+check "too_many_children" '.message == "too_many_children" or .code == "TOO_MANY_CHILDREN"'
+signup "$YJAR" "late-child-$EMAIL"
+expect 403 "上限の家族に、招待コードで子供として入れない" -b "$YJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$FINVITE\"}"
+check "family_full" '.error == "family_full"'
+expect 200 "招待コードは使われずに残る" -b "$YJAR" "${H[@]}" -X POST "$B/api/account/invite-preview" -d "{\"inviteCode\":\"$FINVITE\"}"
 
 echo "== 種類ができる前からの利用者（端末あり）が親を選ぶ"
-LJAR=$(mktemp); trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$AJAR" "$NJAR" "$LJAR"' EXIT
+LJAR=$(mktemp); trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$AJAR" "$NJAR" "$FJAR" "$YJAR" "$LJAR"' EXIT
 signup "$LJAR" "legacy-$EMAIL"
 curl -s -o /dev/null -b "$LJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"adult"}'
 LCODE=$(curl -s -b "$LJAR" "${H[@]}" -X POST "$B/api/login-code" | jq -r .url | sed 's/.*code=//')
