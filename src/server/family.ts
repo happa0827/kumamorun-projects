@@ -252,6 +252,41 @@ export async function consumeChildSignInCode(code: string): Promise<string | nul
   return row.accountId;
 }
 
+export type ChildSignInPreview = {
+  childId: string;
+  childName: string;
+  issuer: { name: string; email: string | null };
+};
+
+/**
+ * 子供のログインリンクのコードを使う前に、誰としてログインするか、誰が発行したかを見る（コードは使わない）。
+ * 使えないコード（期限切れ、使用済み、家族から外れた、親が作った子供でない）なら null。
+ */
+export async function previewChildSignInCode(code: string): Promise<ChildSignInPreview | null> {
+  const [row] = await db
+    .select({ accountId: childSignInCodes.accountId, createdBy: childSignInCodes.createdBy })
+    .from(childSignInCodes)
+    .where(
+      and(
+        eq(childSignInCodes.codeHash, await sha256Hex(code)),
+        isNull(childSignInCodes.usedAt),
+        gt(childSignInCodes.expiresAt, Date.now()),
+      ),
+    );
+  if (!row) return null;
+  const member = await getMember(row.accountId);
+  if (member?.kind !== "child" || !member.familyId || !(await isCreatedChild(row.accountId)))
+    return null;
+  const family = await listFamily(member.familyId);
+  const child = family.find((p) => p.id === row.accountId);
+  const issuer = family.find((p) => p.id === row.createdBy);
+  return {
+    childId: row.accountId,
+    childName: child?.name ?? "",
+    issuer: { name: issuer?.name ?? "", email: issuer?.email ?? null },
+  };
+}
+
 /**
  * 親が作った子供（Google を持たず、仮のメールアドレスの人）か。
  * 親が子供として「ログインさせる」（サイトのログインリンク、アプリのログインコード）のは、この子供だけ。
