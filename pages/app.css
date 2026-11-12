@@ -100,6 +100,24 @@ body {
   padding: 0 1rem 4rem;
 }
 
+.policy ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.site-footer {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0 1rem 2rem;
+  font-size: var(--text-sm);
+}
+
+.site-footer a {
+  color: var(--text-secondary);
+}
+
 /* 登録とログインのカード（Arc の sign-in ブロック）を中央に置く */
 .auth-wrap {
   display: grid;

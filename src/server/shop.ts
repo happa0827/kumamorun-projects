@@ -5,6 +5,7 @@ import { progress, purchases, shop } from "@schema";
 import { db, desc, eq, sql } from "void/db";
 import { sendEmail } from "void/email";
 import { z } from "zod";
+import { gmailConfigured, sendGmail } from "./gmail";
 
 /** 品の数の上限。旧版と同じ。 */
 export const MAX_ITEMS = 5;
@@ -22,10 +23,13 @@ export const DEFAULT_ITEMS: ShopItem[] = [
 ];
 
 /**
- * 購入の通知メールを送るか。本番には送信元のドメインがないので、ログインのコード（otp-mail.ts）と同じく開発のときだけ送る。
- * 開発では Void のローカルの受け箱に届く。本番でも送るなら、void.config.ts に email.from を書いて true にする。
+ * 購入の通知メールを送るか。本番には送信元のドメインがないので、Gmail API で送る（gmail.ts）。
+ * Gmail の設定がそろっていれば、開発でも本番でも Gmail で送る。
+ * そろっていなければ、開発のときだけ Void のローカルの受け箱に送る。
  */
-export const PURCHASE_MAIL_ENABLED: boolean = import.meta.env.DEV;
+export function purchaseMailEnabled(): boolean {
+  return gmailConfigured() || import.meta.env.DEV;
+}
 const DEV_FROM = "くまもーるん <noreply@kumamorun.localhost>";
 
 export const ShopItem = z.object({
@@ -94,7 +98,7 @@ export async function readShop(accountId: string) {
     ...config,
     flowers: p?.flowers ?? 0,
     purchases: recent,
-    mailEnabled: PURCHASE_MAIL_ENABLED,
+    mailEnabled: purchaseMailEnabled(),
     limits: { items: MAX_ITEMS, notifyEmails: MAX_NOTIFY_EMAILS },
   };
 }
@@ -191,15 +195,18 @@ async function notifyPurchase(
   emails: string[],
   { itemName, price, purchasedAt }: { itemName: string; price: number; purchasedAt: number },
 ): Promise<boolean> {
-  if (!PURCHASE_MAIL_ENABLED || emails.length === 0) return false;
-  const when = dateFormat.format(purchasedAt);
+  if (!purchaseMailEnabled() || emails.length === 0) return false;
+  const mail = {
+    to: emails,
+    subject: `購入通知: ${itemName}`,
+    text: `${dateFormat.format(purchasedAt)}に${itemName}（花 ${price}）を購入しました。`,
+  };
   try {
-    const result = await sendEmail({
-      from: DEV_FROM,
-      to: emails,
-      subject: `購入通知: ${itemName}`,
-      text: `${when}に${itemName}（花 ${price}）を購入しました。`,
-    });
+    if (gmailConfigured()) {
+      await sendGmail(mail);
+      return true;
+    }
+    const result = await sendEmail({ from: DEV_FROM, ...mail });
     if (result.ok) return true;
     const detail =
       "error" in result
