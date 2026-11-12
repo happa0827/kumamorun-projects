@@ -1,11 +1,13 @@
 // 認証は Google（OAuth）とパスキーだけ。パスワードは使わない。
 // 登録は Google で行い、パスキーはログインした後に設定から足す（パスキーだけでは登録できない）。
+// ただし Google を持たない子供は、親が作り、親が発行したログインリンクでログインする（src/server/family-auth.ts）。
 // メールの6桁のコード（OTP）は、開発のときだけ有効にする。Google の設定がなくても、
 // ローカルでログインと通しの試験（scripts/smoke-api.sh）ができるようにするため。
 import { passkey } from "@better-auth/passkey";
 import { emailOTP } from "better-auth/plugins";
 import { defineAuth } from "void/auth";
 import { socialProviders } from "./src/oauth";
+import { familyAuth } from "./src/server/family-auth";
 import { EMAIL_CODE_ENABLED, OTP_EXPIRES_MINUTES, sendOtpMail } from "./src/server/otp-mail";
 
 export default defineAuth(({ defaults, env }) => ({
@@ -48,5 +50,7 @@ export default defineAuth(({ defaults, env }) => ({
         ]
       : []),
     passkey({ rpName: "くまもーるん" }),
+    // 親が作る子供（Google なし）と、そのログインリンク
+    familyAuth(),
   ],
 }));

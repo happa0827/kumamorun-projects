@@ -86,7 +86,15 @@ body {
   color: var(--foreground);
 }
 
-.nav a[data-void-active] {
+/* 親が子供を切り替えるタブ。選んだ子供は aria-current で示す（?child= は data-void-active に出ない） */
+.child-tabs {
+  align-self: flex-start;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.child-tabs a[aria-current="page"],
+.nav:not(.child-tabs) a[data-void-active] {
   background: var(--surface-raised);
   box-shadow: var(--shadow-resting);
   color: var(--foreground);

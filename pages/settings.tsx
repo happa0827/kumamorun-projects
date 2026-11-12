@@ -28,11 +28,12 @@ function Settings({ user, devices }: Loaded) {
       <section className="panel" aria-labelledby="account-title">
         <div className="panel-head">
           <h1 id="account-title">設定</h1>
-          <p className="lead">{user.email}</p>
+          <p className="lead">{user.email ?? "親が作ったアカウント"}</p>
+          <p className="muted">アカウントの種類: {user.kindLabel}</p>
         </div>
         <NameForm initial={user.name} />
         <div className="row">
-          <OpenAppButton />
+          {user.kind !== "parent" && <OpenAppButton />}
           <Button
             type="button"
             variant="ghost"
@@ -46,7 +47,7 @@ function Settings({ user, devices }: Loaded) {
           </Button>
         </div>
       </section>
-      <Devices initial={devices} />
+      {user.kind !== "parent" && <Devices initial={devices} />}
       <Passkeys />
     </>
   );
@@ -195,7 +196,8 @@ function Passkeys() {
       <div className="panel-head">
         <h2 id="passkey-title">パスキー</h2>
         <p className="muted">
-          登録すると、メールのコードを待たずに、指紋や顔、PIN でログインできます。
+          登録すると、指紋や顔、PIN でログインできます。Google
+          を持たない子供は、親のログインリンクで入ったあと、ここで登録すると次から自分でログインできます。
         </p>
       </div>
       <Alert

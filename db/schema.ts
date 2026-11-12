@@ -85,6 +85,52 @@ export const purchases = sqliteTable(
   ],
 );
 
+/**
+ * アカウントの種類。サイトだけが使い、アプリは読まない。行がなければ、まだ種類を選んでいない（/welcome で選ぶ）。
+ * - adult: 大人。自分でアプリを使い、全部を自分で管理する。家族には入らない。
+ * - parent: 親。家族の子供の状況を見て、ショップの品と通知先を決める。自分ではアプリを使わない。
+ * - child: 子供。アプリを使い、花でショップの品を買う。スタート制限は自分（アプリ）で変えられる。
+ * 家族は family_id でまとめる（家族そのものの表は持たない）。親も子供も複数でよい。
+ */
+export const members = sqliteTable(
+  "members",
+  {
+    accountId: text("account_id").primaryKey(),
+    kind: text("kind", { enum: ["adult", "parent", "child"] }).notNull(),
+    familyId: text("family_id"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("members_family").on(t.familyId),
+    check("members_kind", sql`${t.kind} IN ('adult', 'parent', 'child')`),
+    // 大人だけが家族を持たない
+    check("members_family_by_kind", sql`(${t.kind} = 'adult') = (${t.familyId} IS NULL)`),
+  ],
+);
+
+/** 家族への招待コード。親が発行し、Google で登録した親か子供が /welcome で使う。一度しか使えない。 */
+export const familyInvites = sqliteTable(
+  "family_invites",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    familyId: text("family_id").notNull(),
+    kind: text("kind", { enum: ["parent", "child"] }).notNull(),
+    createdBy: text("created_by").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    usedAt: integer("used_at"),
+  },
+  (t) => [check("family_invites_kind", sql`${t.kind} IN ('parent', 'child')`)],
+);
+
+/** 親が作った子供（Google なし）が、サイトにログインするための使い捨てコード。一度しか使えない。 */
+export const childSignInCodes = sqliteTable("child_sign_in_codes", {
+  codeHash: text("code_hash").primaryKey(),
+  accountId: text("account_id").notNull(),
+  createdBy: text("created_by").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  usedAt: integer("used_at"),
+});
+
 /** ライブ状況。アカウントにつき1行。updated_at はサーバーが入れる。 */
 export const liveStatus = sqliteTable("live_status", {
   accountId: text("account_id").primaryKey(),

@@ -24,6 +24,8 @@
 - 同期: WebView ではなく Rust の HTTP クライアントが行う。
 - オフライン: 記録、進化の保留、設定は Rust 側のキューにため、つながったら順に送る。ライブ状況は最新の1件だけを送る。進化はキューにためず、つながってから判定し直す。
 - 環境: 開発はローカルの `void dev`（ローカルの D1）だけ。デプロイするのは本番の1つ。アプリの開発ビルドは `http://localhost` の API につなぐ。OAuth の戻り先には、本番とローカルの両方を登録する。
+- アカウントの種類: 大人、親、子供の3つ（`members`）。大人は今までどおり全部を自分で持つ。子供はアプリを使い、花でショップの品を買う。スタート制限は子供（アプリ）が自分で変える。親は自分ではアプリを使わず、家族の子供の状況を見て、ショップの品と購入の通知先を決める。親も子供も複数でよく、`family_id` でまとめる。種類は最初のログインで `/welcome` から選び、あとから変えない（種類ができる前からのアカウントも、次のログインで選ぶ）。アプリ向け API は種類を見ない（端末のアカウントのデータを読み書きするだけ）。
+- 子供のログイン: Google を持つ子供は、親の招待コードで家族に入る。持たない子供は、親が「家族」で作り（`/api/auth/family/add-child`、仮のメールアドレス `…@children.kumamorun.invalid`）、親が発行したログインリンク（`/child-login#code=…`、30分、一度だけ）でサイトに入る。そのあとパスキーを足せば、自分でログインできる。アプリには、親が子供のパソコンで `/link` から子供を選んでログインさせる。どちらも Void が出していない「ほかのユーザーのセッションを作る」処理なので、Better Auth の自作プラグイン（`src/server/family-auth.ts`）で行う。
 - 移行: 二重書き込みなし。利用者は数人。新しい版の初回ログインで、端末のローカルデータを自動で取り込む。最後の Firebase 版には書き出し機能（保険）を足す。
 
 ## スキーマ（D1）
@@ -88,6 +90,34 @@ CREATE TABLE shop (
   items_json         TEXT NOT NULL,
   notify_emails_json TEXT NOT NULL,
   updated_at         INTEGER NOT NULL
+);
+
+-- アカウントの種類（サイトだけが使う）。行がなければ、まだ選んでいない。大人だけが家族を持たない。
+CREATE TABLE members (
+  account_id TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL CHECK (kind IN ('adult', 'parent', 'child')),
+  family_id  TEXT,                       -- 親と子供は必ず持つ
+  created_at INTEGER NOT NULL,
+  CHECK ((kind = 'adult') = (family_id IS NULL))
+);
+
+-- 家族への招待コード（「ABCD-EFGH」）。親が発行し、24時間で失効し、一度しか使えない。
+CREATE TABLE family_invites (
+  code_hash  TEXT PRIMARY KEY,
+  family_id  TEXT NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('parent', 'child')),
+  created_by TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at    INTEGER
+);
+
+-- 親が作った子供のログインリンクのコード。30分で失効し、一度しか使えない。
+CREATE TABLE child_sign_in_codes (
+  code_hash  TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at    INTEGER
 );
 
 -- 購入の記録。品の名前と値段は購入時の写し。
@@ -206,10 +236,15 @@ type History = Record<string, { plays: number; failures: number }>;        // �
 
 | 経路 | 内容 |
 |---|---|
-| `/` | ログインしていれば状況ページ、していなければログイン（Google とパスキー。登録は Google。開発のときだけメールのコードも出る）。`?next=` でログイン後の移動先を渡す |
+| `/` | ログインしていれば状況ページ（親は子供の状況）、していなければログイン（Google とパスキー。登録は Google。開発のときだけメールのコードも出る）。`?next=` でログイン後の移動先を渡す |
 | `/settings` | アカウント（名前の変更）、端末の一覧と失効、パスキーの登録と削除、ログアウト |
 | `/link` | アプリの「ログイン」から開く。ログイン後に「アプリを開く」で `kumamorun://auth?code=…` を渡す |
-| `GET /api/status` | 状況ページが10秒ごとに読む。`{ appRunning, updatedAt, serverTime, status }` |
+| `GET /api/status` | 状況ページが10秒ごとに読む。`{ appRunning, updatedAt, serverTime, status }`。親は `?account=<子供の ID>` |
+| `/welcome` | アカウントの種類を選ぶ（大人、親として家族を作る、招待コードで家族に入る）。種類のないアカウントは、どのページからもここへ移る |
+| `/family` | 親だけ。子供の一覧と追加、子供のログインリンク、招待コード、親の一覧 |
+| `/child-login` | 子供のログインリンク。`#code=…` を `/api/auth/family/child-sign-in` で使い、子供としてログインする |
+
+親は、`/`、`/shop`、`/link` で `?child=<ID>` を付けて子供を選ぶ。API は `?account=<ID>` で子供を指す（`/api/status`、`/api/login-code`、`/api/shop/items`、`/api/shop/notify-emails`）。ショップの品と通知先を変えられるのは大人（自分）と親（子供）、買えるのは大人と子供（自分の花）。子供が家族に入ると、通知先に招いた親のメールアドレスが入る。
 
 #### 状況ページの表示
 

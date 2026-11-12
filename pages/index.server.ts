@@ -2,6 +2,7 @@ import { defineHandler, type InferProps } from "void";
 import { getUser } from "void/auth";
 import { env } from "void/env";
 import { readLiveStatus } from "../src/server/account-data";
+import { getMember, listChildren, targetAccount } from "../src/server/family";
 import { configuredProviders } from "../src/oauth";
 import { EMAIL_CODE_ENABLED } from "../src/server/otp-mail";
 
@@ -14,11 +15,25 @@ export const loader = defineHandler(async (c) => {
   // メールのコードは開発のときだけ（auth.ts の EMAIL_CODE_ENABLED と同じ）
   const emailCode = EMAIL_CODE_ENABLED;
   if (!user) return { signedIn: false as const, providers, next, emailCode, status: null };
+
+  const member = await getMember(user.id);
+  if (!member) return c.redirect(`/welcome?next=${encodeURIComponent(next)}`);
+  if (member.kind !== "parent" || !member.familyId)
+    return {
+      signedIn: true as const,
+      view: "self" as const,
+      status: await readLiveStatus(user.id),
+    };
+
+  // 親は子供の状況を見る。?child= がなければ最初の子供。
+  const children = (await listChildren(member.familyId)).map((p) => ({ id: p.id, name: p.name }));
+  const selected =
+    (await targetAccount(user.id, member, c.req.query("child"))) ?? children[0]?.id ?? null;
   return {
     signedIn: true as const,
-    providers,
-    next,
-    emailCode,
-    status: await readLiveStatus(user.id),
+    view: "family" as const,
+    children,
+    selected,
+    status: selected ? await readLiveStatus(selected) : null,
   };
 });

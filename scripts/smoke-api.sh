@@ -20,6 +20,14 @@ expect() {
 api() { local m=$1 p=$2; shift 2; curl -s "${H[@]}" -H "Authorization: Bearer $TOKEN" -X "$m" "$B/api/app/v1$p" "$@"; }
 eapi() { local want=$1 what=$2 m=$3 p=$4; shift 4; expect "$want" "$what" "${H[@]}" -H "Authorization: Bearer $TOKEN" -X "$m" "$B/api/app/v1$p" "$@"; }
 check() { if jq -e "$2" <<<"$BODY" >/dev/null; then echo "ok      $1"; else echo "NG      $1: ${BODY:0:300}"; FAIL=$((FAIL+1)); fi; }
+# signup <クッキーの入れ物> <メールアドレス>  メールのコードで新しいアカウントを作り、ログインする（種類はまだない）
+signup() {
+  local jar=$1 email=$2 otp=""
+  curl -s -o /dev/null -X DELETE "${INBOX[@]}"
+  curl -s -o /dev/null "${H[@]}" -X POST "$B/api/auth/email-otp/send-verification-otp" -d "{\"email\":\"$email\",\"type\":\"sign-in\"}"
+  for _ in 1 2 3 4 5; do otp=$(curl -s "${INBOX[@]}" | grep -oE 'ログインコード: [0-9]{6}' | head -1 | grep -oE '[0-9]{6}'); [ -n "$otp" ] && break; sleep 0.5; done
+  expect 200 "$email で登録" -c "$jar" -b "$jar" "${H[@]}" -X POST "$B/api/auth/sign-in/email-otp" -d "{\"email\":\"$email\",\"otp\":\"$otp\"}"
+}
 
 echo "== 認証（メールのコード。初めてのアドレスなので、そのまま登録になる）"
 # コードは void dev の受け箱から読む。受け箱は HTML の一覧しかないので、送る前に空にする。
@@ -35,6 +43,16 @@ expect 200 "コードでログイン（登録）" -c "$JAR" -b "$JAR" "${H[@]}" 
 expect 400 "使ったコードの使い回し" "${H[@]}" -X POST "$B/api/auth/sign-in/email-otp" -d "{\"email\":\"$EMAIL\",\"otp\":\"$OTP\"}"
 expect 400 "パスワードでの登録は無効" "${H[@]}" -X POST "$B/api/auth/sign-up/email" -d "{\"email\":\"pw-$EMAIL\",\"password\":\"password-123\",\"name\":\"smoke\"}"
 expect 401 "ログインなしのコード発行" "${H[@]}" -X POST "$B/api/login-code"
+
+echo "== アカウントの種類（このアカウントは大人）"
+expect 403 "種類を選ぶ前のコード発行" -b "$JAR" "${H[@]}" -X POST "$B/api/login-code"
+check "kind_required" '.error == "kind_required"'
+expect 302 "種類を選ぶ前の状況ページは /welcome へ" -b "$JAR" "$B/"
+expect 422 "不明な種類" -b "$JAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"child"}'
+expect 400 "不明な招待コード" -b "$JAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"inviteCode":"AAAA-AAAA"}'
+expect 200 "大人を選ぶ" -b "$JAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"adult"}'
+expect 409 "選び直しはできない" -b "$JAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"parent"}'
+expect 302 "選んだ後の /welcome は移動先へ" -b "$JAR" "$B/welcome"
 
 echo "== ディープリンクのコード交換"
 expect 200 "コード発行" -b "$JAR" "${H[@]}" -X POST "$B/api/login-code"
@@ -132,6 +150,67 @@ if [ -n "$DEVICE2" ]; then
 else
   echo "NG      端末の一覧から ID を読めない"; FAIL=$((FAIL+1))
 fi
+
+echo "== 家族（親、親が作った子供、招待で入った子供と親）"
+PJAR=$(mktemp); CJAR=$(mktemp); GJAR=$(mktemp); QJAR=$(mktemp); XJAR=$(mktemp)
+trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR"' EXIT
+signup "$PJAR" "parent-$EMAIL"
+expect 200 "親を選ぶ（家族を作る）" -b "$PJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"parent"}'
+expect 403 "大人は子供を作れない" -b "$JAR" "${H[@]}" -X POST "$B/api/auth/family/add-child" -d '{"name":"x"}'
+expect 200 "親が子供を作る" -b "$PJAR" "${H[@]}" -X POST "$B/api/auth/family/add-child" -d '{"name":"たろう"}'
+CHILD=$(jq -r .id <<<"$BODY")
+expect 200 "家族の画面" -b "$PJAR" "$B/family"
+expect 302 "大人は家族の画面に入れない" -b "$JAR" "$B/family"
+expect 403 "親は自分のコードを発行しない" -b "$PJAR" "${H[@]}" -X POST "$B/api/login-code"
+expect 200 "親が子供のアプリのコードを発行" -b "$PJAR" "${H[@]}" -X POST "$B/api/login-code?account=$CHILD"
+CCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+expect 200 "子供の端末の交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$CCODE\",\"deviceName\":\"CHILD-PC\"}"
+CTOKEN=$(jq -r .token <<<"$BODY")
+expect 200 "子供のアプリで取り込み（花 6）" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X POST "$B/api/app/v1/import" -d "$(jq -c '.flowers = 6' <<<"$IMPORT")"
+expect 200 "子供のアプリの同期" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X GET "$B/api/app/v1/sync"
+expect 204 "子供のアプリから設定を変える" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X PUT "$B/api/app/v1/settings" -d '{"restrictions":{"weekday":{"endTime":"20:00"}}}'
+expect 200 "親が子供の状況を読む" -b "$PJAR" "$B/api/status?account=$CHILD"
+expect 403 "親は子供を指定しないと読めない" -b "$PJAR" "$B/api/status"
+expect 403 "大人は他人の状況を読めない" -b "$JAR" "$B/api/status?account=$CHILD"
+expect 200 "親が子供の状況ページを開く" -b "$PJAR" "$B/?child=$CHILD"
+expect 200 "親が子供の品を決める" -b "$PJAR" "${H[@]}" -X PUT "$B/api/shop/items?account=$CHILD" -d '{"items":[{"id":"c","name":"アイス","price":2}]}'
+expect 403 "大人は他人の品を変えられない" -b "$JAR" "${H[@]}" -X PUT "$B/api/shop/items?account=$CHILD" -d '{"items":[]}'
+expect 403 "親は買えない" -b "$PJAR" "${H[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"c","expectedPrice":2}'
+expect 200 "親が子供のショップを開く" -b "$PJAR" "$B/shop?child=$CHILD"
+expect 200 "子供のログインリンク" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
+LCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+expect 404 "大人の ID のログインリンクは作れない" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$(curl -s -b "$JAR" "$B/api/auth/get-session" | jq -r .user.id)/sign-in-link"
+expect 200 "子供がリンクでログイン" -c "$CJAR" -b "$CJAR" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$LCODE\"}"
+expect 401 "リンクの使い回し" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$LCODE\"}"
+expect 200 "子供のセッション" -b "$CJAR" "$B/api/auth/get-session"
+check "子供としてログインしている" ".user.id == \"$CHILD\""
+expect 200 "子供が自分の状況を読む" -b "$CJAR" "$B/api/status"
+check "アプリの書き込みが見える前でも読める" '.appRunning == false'
+expect 403 "子供は品を変えられない" -b "$CJAR" "${H[@]}" -X PUT "$B/api/shop/items" -d '{"items":[]}'
+expect 403 "子供は通知先を変えられない" -b "$CJAR" "${H[@]}" -X PUT "$B/api/shop/notify-emails" -d '{"emails":[]}'
+curl -s -o /dev/null -X DELETE "${INBOX[@]}"
+expect 200 "子供が買う" -b "$CJAR" "${H[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"c","expectedPrice":2}'
+check "花 4、親に通知" '.flowers == 4 and .notified == true'
+if curl -s "${INBOX[@]}" | grep -q "parent-$EMAIL"; then echo "ok      親の宛先に購入通知が届いた"; else echo "NG      親の宛先に購入通知が届かない"; FAIL=$((FAIL+1)); fi
+expect 200 "子供がアプリのコードを発行" -b "$CJAR" "${H[@]}" -X POST "$B/api/login-code"
+expect 403 "子供は招待コードを作れない" -b "$CJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"child"}'
+echo "-- 招待コード"
+expect 200 "子供の招待コード" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"child"}'
+INVITE=$(jq -r .code <<<"$BODY")
+signup "$GJAR" "google-child-$EMAIL"
+expect 200 "招待コードで子供になる（小文字と記号なしでも通る）" -b "$GJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$(tr -d '-' <<<"$INVITE" | tr 'A-Z' 'a-z')\"}"
+check "子供" '.kind == "child"'
+signup "$XJAR" "late-$EMAIL"
+expect 400 "使った招待コードの使い回し" -b "$XJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$INVITE\"}"
+GID=$(curl -s -b "$GJAR" "$B/api/auth/get-session" | jq -r .user.id)
+expect 200 "親の招待コード" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"parent"}'
+PINVITE=$(jq -r .code <<<"$BODY")
+signup "$QJAR" "parent2-$EMAIL"
+expect 200 "招待コードで2人目の親になる" -b "$QJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$PINVITE\"}"
+check "親" '.kind == "parent"'
+expect 200 "2人目の親も子供の状況を読める" -b "$QJAR" "$B/api/status?account=$GID"
+expect 200 "2人目の親も、親が作った子供を読める" -b "$QJAR" "$B/api/status?account=$CHILD"
+expect 403 "子供はきょうだいの状況を読めない" -b "$CJAR" "$B/api/status?account=$GID"
 
 echo "== ログアウト"
 eapi 204 "ログアウト" POST /logout
