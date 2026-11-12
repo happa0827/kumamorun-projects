@@ -325,17 +325,29 @@ check "Google の子供" ".user.id == \"$GID\""
 expect 200 "新しいリンク" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
 NLCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
 expect 200 "子供は新しいリンクでログインし直せる" -c "$CJAR" -b "$CJAR" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$NLCODE\"}"
-echo "-- 前から使っていた人が招待で子供になっても、決めていた通知先は残る"
+echo "-- 前から使っていた人が招待で子供になると、通知先は残り、花は 0 になる"
 signup "$NJAR" "notify-$EMAIL"
 curl -s -o /dev/null -b "$NJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"adult"}'
 expect 200 "大人のときの通知先" -b "$NJAR" "${H[@]}" -X PUT "$B/api/shop/notify-emails" -d '{"emails":["own-choice@example.com"]}'
 NID=$(curl -s -b "$NJAR" "$B/api/auth/get-session" | jq -r .user.id)
+NCODE=$(curl -s -b "$NJAR" "${H[@]}" -X POST "$B/api/login-code" | jq -r .url | sed 's/.*code=//')
+NTOKEN=$(curl -s "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$NCODE\",\"deviceName\":\"NOTIFY-PC\"}" | jq -r .token)
 # 「種類ができる前」の利用者に戻す（ローカルの D1 だけ）
 vp exec void db execute "DELETE FROM members WHERE account_id = '$NID'" >/dev/null 2>&1
+# 種類のないあいだは子供の制限がかからないので、端末のトークンで同じ日に何度も進化して花を増やす
+for st in 0 1 2 3 4; do curl -s -o /dev/null "${H[@]}" -H "Authorization: Bearer $NTOKEN" -X POST "$B/api/app/v1/evolve" -d "{\"expectedStage\":$st,\"nextStage\":$((st+1)),\"flowersToAdd\":0}"; done
+curl -s -o /dev/null "${H[@]}" -H "Authorization: Bearer $NTOKEN" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":5,"nextStage":0,"flowersToAdd":2}'
+for st in 0 1 2; do curl -s -o /dev/null "${H[@]}" -H "Authorization: Bearer $NTOKEN" -X POST "$B/api/app/v1/evolve" -d "{\"expectedStage\":$st,\"nextStage\":$((st+1)),\"flowersToAdd\":0}"; done
+expect 200 "種類のないあいだに増やした花" -H "Authorization: Bearer $NTOKEN" "$B/api/app/v1/sync"
+check "段階 3、花 2" '.stage == 3 and .flowers == 2'
 NINVITE=$(curl -s -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"child"}' | jq -r .code)
 expect 200 "招待コードで子供になる" -b "$NJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$NINVITE\"}"
 expect 200 "親が子供のショップを開く" -b "$PJAR" "$B/shop?child=$NID"
 if grep -q 'own-choice@example.com' <<<"$BODY" && ! grep -q "parent-$EMAIL" <<<"$BODY"; then echo "ok      決めていた通知先が残る"; else echo "NG      通知先が上書きされた"; FAIL=$((FAIL+1)); fi
+expect 200 "子供になったあとの同期" -H "Authorization: Bearer $NTOKEN" "$B/api/app/v1/sync"
+check "花は 0、段階は残る" '.stage == 3 and .flowers == 0'
+expect 409 "子供になったら、同じ日にはもう進化できない（入る前の進化と同じ日）" "${H[@]}" -H "Authorization: Bearer $NTOKEN" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":3,"nextStage":4,"flowersToAdd":0}'
+check "already_evolved_today" '.error == "already_evolved_today"'
 echo "-- 子供は1つの家族に20人まで（親が作る子供と、招待で入る子供を合わせて）"
 signup "$FJAR" "full-$EMAIL"
 curl -s -o /dev/null -b "$FJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"parent"}'

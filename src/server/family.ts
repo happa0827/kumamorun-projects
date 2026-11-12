@@ -1,6 +1,6 @@
 // アカウントの種類（大人、親、子供）と家族。サイトだけが使い、アプリ向け API は種類を見ない。
 // 親は同じ家族の子供のデータ（状況、ショップ）を見て、ショップの品と通知先を決める。
-import { childSignInCodes, devices, familyInvites, loginCodes, members } from "@schema";
+import { childSignInCodes, devices, familyInvites, loginCodes, members, progress } from "@schema";
 import { and, db, eq, exists, gt, isNull, sql } from "void/db";
 import { newInviteCode, newLoginCode, normalizeInviteCode, sha256Hex } from "./secrets";
 import { setNotifyEmailsIfEmpty } from "./shop";
@@ -193,6 +193,28 @@ export async function joinWithInvite(accountId: string, code: string): Promise<C
         ),
       )
       .returning({ kind: familyInvites.kind, createdBy: familyInvites.createdBy }),
+    // 子供として入ったら、それまでの花を 0 にする（段階は残す）。種類を選ぶ前の端末のトークンには、
+    // 子供の制限（/import の花、/evolve の1日1回）がかからないので、そのあいだに増やした花を持ち込ませない。
+    db
+      .update(progress)
+      .set({ flowers: 0, updatedAt: now })
+      .where(
+        and(
+          eq(progress.accountId, accountId),
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(members)
+              .where(
+                and(
+                  eq(members.accountId, accountId),
+                  eq(members.kind, "child"),
+                  eq(members.createdAt, now),
+                ),
+              ),
+          ),
+        ),
+      ),
   ]);
   const [invite] = used;
   if (!invite) {
