@@ -60,7 +60,9 @@ expect 409 "選び直しはできない" -b "$JAR" "${H[@]}" -X POST "$B/api/acc
 expect 302 "選んだ後の /welcome は移動先へ" -b "$JAR" "$B/welcome"
 echo "-- 移動先（?next=）はサイトの中だけ"
 location() { curl -s -o /dev/null -D - -b "$JAR" "$B$1" | tr -d '\r' | grep -i '^location:' | cut -d' ' -f2-; }
-for bad in '/%5Cevil.com' '//evil.com' '/%09/evil.com' 'https://evil.com' '/%5C%5Cevil.com'; do
+# 後ろの4つは、URL の解釈で . と .. がたたまれて //evil.com になる形（/%252e は、サーバーには /%2e で届く）
+for bad in '/%5Cevil.com' '//evil.com' '/%09/evil.com' 'https://evil.com' '/%5C%5Cevil.com' \
+  '/.//evil.com' '/..//evil.com' '/%252e//evil.com' '/./%5Cevil.com'; do
   got=$(location "/welcome?next=$bad")
   if [ "$got" = "/" ]; then echo "ok      next=$bad は / へ"; else echo "NG      next=$bad が「$got」へ"; FAIL=$((FAIL+1)); fi
 done
