@@ -68,7 +68,10 @@ for bad in '/%5Cevil.com' '//evil.com' '/%09/evil.com' 'https://evil.com' '/%5C%
 done
 got=$(location "/welcome?next=/shop%3Fchild%3Dx")
 if [ "$got" = "/shop?child=x" ]; then echo "ok      next=/shop?child=x はそのまま"; else echo "NG      next=/shop?child=x が「$got」へ"; FAIL=$((FAIL+1)); fi
-# ログインしていないと、ログイン画面へ移す。ログインのあとに /welcome から元の移動先へ進めるよう、next を残す
+# ログインしていないと、ログイン画面へ移す。選んでいた子供（?child=）も、移動先に残す
+got=$(curl -s -o /dev/null -D - "$B/shop?child=abc" | tr -d '\r' | grep -i '^location:' | cut -d' ' -f2-)
+if [ "$got" = "/?next=%2Fshop%3Fchild%3Dabc" ]; then echo "ok      ログインなしの /shop?child=abc は、?child= を残してログイン画面へ"; else echo "NG      ログインなしの /shop?child=abc が「$got」へ"; FAIL=$((FAIL+1)); fi
+# /welcome も、ログイン画面へ移す。ログインのあとに /welcome から元の移動先へ進めるよう、next を残す
 got=$(curl -s -o /dev/null -D - "$B/welcome?next=/shop" | tr -d '\r' | grep -i '^location:' | cut -d' ' -f2-)
 if [ "$got" = "/?next=%2Fwelcome%3Fnext%3D%252Fshop" ]; then echo "ok      ログインなしの /welcome?next=/shop は、next を残してログイン画面へ"; else echo "NG      ログインなしの /welcome?next=/shop が「$got」へ"; FAIL=$((FAIL+1)); fi
 
@@ -184,7 +187,18 @@ expect 200 "親が子供のアプリのコードを発行" -b "$PJAR" "${H[@]}" 
 CCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
 expect 200 "子供の端末の交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$CCODE\",\"deviceName\":\"CHILD-PC\"}"
 CTOKEN=$(jq -r .token <<<"$BODY")
-expect 200 "子供のアプリで取り込み（花 6）" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X POST "$B/api/app/v1/import" -d "$(jq -c '.flowers = 6' <<<"$IMPORT")"
+expect 200 "子供のアプリで取り込み（花 1000000 を送る）" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X POST "$B/api/app/v1/import" -d "$(jq -c '.flowers = 1000000' <<<"$IMPORT")"
+check "子供の花は取り込まない（0）。段階は取り込む" '.flowers == 0 and .stage == 4'
+expect 200 "子供の成長 4→5（今日の1回目）" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":4,"nextStage":5,"flowersToAdd":0}'
+expect 409 "子供の開花（今日の2回目）" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":5,"nextStage":0,"flowersToAdd":2}'
+check "already_evolved_today と今の値（変わらない）" '.error == "already_evolved_today" and .current == {"stage":5,"flowers":0}'
+expect 409 "子供の、段階の合わない進化はふつうの conflict" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":4,"nextStage":5,"flowersToAdd":0}'
+check "conflict" '.error == "conflict" and .current.stage == 5'
+# 前の日に進化した扱いにすると、また進化できる（ローカルの D1 だけ）。そのあと、買う試験のために花を 6 にする
+vp exec void db execute "UPDATE progress SET evolved_on = '2000-01-01' WHERE account_id = '$CHILD'" >/dev/null 2>&1
+expect 200 "次の日の子供の開花（夜桜で +2）" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":5,"nextStage":0,"flowersToAdd":2}'
+check "段階 0、花 2" '.stage == 0 and .flowers == 2'
+vp exec void db execute "UPDATE progress SET flowers = 6 WHERE account_id = '$CHILD'" >/dev/null 2>&1
 expect 200 "子供のアプリの同期" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X GET "$B/api/app/v1/sync"
 expect 204 "子供のアプリから設定を変える" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X PUT "$B/api/app/v1/settings" -d '{"restrictions":{"weekday":{"endTime":"20:00"}}}'
 expect 200 "親が子供の状況を読む" -b "$PJAR" "$B/api/status?account=$CHILD"
@@ -334,6 +348,22 @@ signup "$YJAR" "late-child-$EMAIL"
 expect 403 "上限の家族に、招待コードで子供として入れない" -b "$YJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$FINVITE\"}"
 check "family_full" '.error == "family_full"'
 expect 200 "招待コードは使われずに残る" -b "$YJAR" "${H[@]}" -X POST "$B/api/account/invite-preview" -d "{\"inviteCode\":\"$FINVITE\"}"
+echo "-- まだ使われていない招待コードの一覧と取り消し"
+expect 200 "親の招待コード（取り消す）" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"parent"}'
+RCODE=$(jq -r .code <<<"$BODY"); RID=$(jq -r .id <<<"$BODY")
+expect 200 "招待コードの一覧" -b "$PJAR" "$B/api/family/invites"
+check "出したコードが一覧にある（コードとハッシュは出ない）" ".invites | any(.id == \"$RID\" and .kind == \"parent\" and (.createdBy | type) == \"string\") and (tostring | test(\"$RCODE\") | not) and (tostring | test(\"code\") | not)"
+expect 200 "家族の画面に一覧が出る" -b "$PJAR" "$B/family"
+if grep -q "data-invite-id=\"$RID\"" <<<"$BODY"; then echo "ok      家族の画面に、取り消せる招待コードが出る"; else echo "NG      家族の画面に招待コードが出ない"; FAIL=$((FAIL+1)); fi
+expect 403 "大人は一覧を見られない" -b "$JAR" "$B/api/family/invites"
+expect 404 "ほかの家族の親は取り消せない" -b "$FJAR" "${H[@]}" -X DELETE "$B/api/family/invites/$RID"
+expect 403 "子供は取り消せない" -b "$GJAR" "${H[@]}" -X DELETE "$B/api/family/invites/$RID"
+expect 204 "2人目の親が取り消す" -b "$QJAR" "${H[@]}" -X DELETE "$B/api/family/invites/$RID"
+expect 404 "2回目の取り消し" -b "$PJAR" "${H[@]}" -X DELETE "$B/api/family/invites/$RID"
+expect 400 "取り消したコードは確かめられない" -b "$YJAR" "${H[@]}" -X POST "$B/api/account/invite-preview" -d "{\"inviteCode\":\"$RCODE\"}"
+expect 400 "取り消したコードでは入れない" -b "$YJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$RCODE\"}"
+expect 200 "取り消したあとの一覧" -b "$PJAR" "$B/api/family/invites"
+check "一覧から消える" ".invites | all(.id != \"$RID\")"
 
 echo "== 種類ができる前からの利用者（端末あり）が親を選ぶ"
 LJAR=$(mktemp); trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$AJAR" "$NJAR" "$FJAR" "$YJAR" "$LJAR"' EXIT

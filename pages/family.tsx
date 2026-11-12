@@ -24,7 +24,10 @@ export default function FamilyPage(props: Props) {
   return (
     <>
       <Children initial={props.children} />
-      <Invites />
+      <Invites
+        initial={props.invites}
+        myName={props.parents.find((p) => p.id === props.me)?.name ?? ""}
+      />
       <Parents list={props.parents} me={props.me} />
     </>
   );
@@ -338,12 +341,15 @@ function CopyField({ label, value, note }: { label: string; value: string; note:
   );
 }
 
-function Invites() {
+function Invites({ initial, myName }: { initial: Loaded["invites"]; myName: string }) {
   const [invite, setInvite] = useState<{
+    id: string;
     code: string;
     kind: "parent" | "child";
     expiresAt: number;
   } | null>(null);
+  // まだ使われていない招待コード。コードそのものは出せない（サーバーはハッシュしか持たない）
+  const [pending, setPending] = useState(initial);
   const [busy, setBusy] = useState<"parent" | "child" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -360,7 +366,26 @@ function Invites() {
       setError(`招待コードを作れませんでした（${response.status}）`);
       return;
     }
-    setInvite((await response.json()) as typeof invite);
+    const created = (await response.json()) as NonNullable<typeof invite>;
+    setInvite(created);
+    setPending((current) => [
+      { id: created.id, kind: created.kind, createdBy: myName, expiresAt: created.expiresAt },
+      ...current,
+    ]);
+  };
+
+  const revoke = async (id: string) => {
+    const response = await fetch(`/api/family/invites/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    // 404 は、もう使われたか、ほかの親が取り消した
+    if (!response.ok && response.status !== 404) {
+      setError(`取り消せませんでした（${response.status}）`);
+      return;
+    }
+    setPending((current) => current.filter((p) => p.id !== id));
+    setInvite((current) => (current?.id === id ? null : current));
+    setError(null);
   };
 
   return (
@@ -402,6 +427,36 @@ function Invites() {
           value={invite.code}
           note={`${time.format(invite.expiresAt)}まで使えます。`}
         />
+      )}
+      {pending.length > 0 && (
+        <div className="stack">
+          <p className="muted">
+            まだ使われていない招待コードです。送り間違えたときや、ほかの人に知られたときは取り消してください。
+          </p>
+          <ul className="cards">
+            {pending.map((p) => (
+              <li key={p.id} data-invite-id={p.id}>
+                <Card
+                  title={p.kind === "child" ? "子供の招待コード" : "親の招待コード"}
+                  description={`${p.createdBy || "（名前なし）"}が発行・${time.format(p.expiresAt)}まで`}
+                  action={
+                    <ConfirmDialog
+                      trigger={
+                        <Button type="button" variant="danger" size="sm">
+                          取り消す
+                        </Button>
+                      }
+                      title="この招待コードを取り消しますか？"
+                      description="取り消したコードでは、家族に入れなくなります。"
+                      confirmLabel="取り消す"
+                      onConfirm={() => revoke(p.id)}
+                    />
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       <Alert
         tone="danger"

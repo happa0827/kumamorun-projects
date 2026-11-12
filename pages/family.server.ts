@@ -3,13 +3,13 @@ import { devices, progress } from "@schema";
 import { defineHandler, defineHead, type InferProps } from "void";
 import { and, db, desc, inArray, isNull } from "void/db";
 import { readLiveStatus } from "../src/server/account-data";
-import { listFamily } from "../src/server/family";
+import { listFamily, listPendingInvites } from "../src/server/family";
 import { loadViewer } from "../src/server/viewer";
 
 export type Props = InferProps<typeof loader>;
 
 export const loader = defineHandler(async (c) => {
-  const viewer = await loadViewer(c, "/family");
+  const viewer = await loadViewer(c);
   if (viewer instanceof Response) return viewer;
   const { familyId } = viewer.member;
   if (viewer.member.kind !== "parent" || !familyId) return c.redirect("/");
@@ -17,7 +17,7 @@ export const loader = defineHandler(async (c) => {
   const people = await listFamily(familyId);
   const children = people.filter((p) => p.kind === "child");
   const ids = children.map((p) => p.id);
-  const [flowerRows, deviceRows, statuses] = await Promise.all([
+  const [flowerRows, deviceRows, statuses, invites] = await Promise.all([
     ids.length
       ? db
           .select({ id: progress.accountId, flowers: progress.flowers })
@@ -37,11 +37,13 @@ export const loader = defineHandler(async (c) => {
           .orderBy(desc(devices.lastSeenAt))
       : Promise.resolve([]),
     Promise.all(ids.map((id) => readLiveStatus(id))),
+    listPendingInvites(familyId),
   ]);
   const flowers = new Map(flowerRows.map((r) => [r.id, r.flowers]));
 
   return {
     me: viewer.id,
+    invites,
     parents: people
       .filter((p) => p.kind === "parent")
       .map((p) => ({ id: p.id, name: p.name, email: p.email })),

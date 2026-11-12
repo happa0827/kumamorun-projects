@@ -208,18 +208,53 @@ export async function joinWithInvite(accountId: string, code: string): Promise<C
   return { ok: true, kind: invite.kind };
 }
 
-/** 親が招待コードを発行する。 */
+/** 親が招待コードを発行する。id は一覧と取り消しに使う。 */
 export async function createInvite(parentId: string, familyId: string, kind: "parent" | "child") {
   const code = newInviteCode();
+  const id = crypto.randomUUID();
   const expiresAt = Date.now() + INVITE_TTL_MS;
   await db.insert(familyInvites).values({
     codeHash: await sha256Hex(normalizeInviteCode(code)),
+    id,
     familyId,
     kind,
     createdBy: parentId,
     expiresAt,
   });
-  return { code, kind, expiresAt };
+  return { id, code, kind, expiresAt };
+}
+
+export type PendingInvite = {
+  id: string;
+  kind: "parent" | "child";
+  createdBy: string;
+  expiresAt: number;
+};
+
+/** 家族の、まだ使われていない期限内の招待コード（コードそのものは持っていないので出さない）。新しい順。 */
+export async function listPendingInvites(familyId: string): Promise<PendingInvite[]> {
+  const rows = await db.all<PendingInvite>(sql`
+    SELECT i.id AS id, i.kind AS kind, COALESCE(u.name, '') AS createdBy, i.expires_at AS expiresAt
+    FROM family_invites i LEFT JOIN "user" u ON u.id = i.created_by
+    WHERE i.family_id = ${familyId} AND i.used_at IS NULL AND i.expires_at > ${Date.now()}
+      AND i.id IS NOT NULL
+    ORDER BY i.expires_at DESC`);
+  return rows;
+}
+
+/** 招待コードを取り消す（同じ家族の、まだ使われていないものだけ）。取り消せたら true。 */
+export async function revokeInvite(familyId: string, id: string): Promise<boolean> {
+  const deleted = await db
+    .delete(familyInvites)
+    .where(
+      and(
+        eq(familyInvites.id, id),
+        eq(familyInvites.familyId, familyId),
+        isNull(familyInvites.usedAt),
+      ),
+    )
+    .returning({ id: familyInvites.id });
+  return deleted.length > 0;
 }
 
 /** 親が作った子供のユーザーを、家族に入れる（ユーザーそのものは Better Auth が作る。family-auth.ts）。 */

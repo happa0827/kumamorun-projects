@@ -7,7 +7,7 @@ import { loadViewer } from "../src/server/viewer";
 export type Props = InferProps<typeof loader>;
 
 export const loader = defineHandler(async (c) => {
-  const viewer = await loadViewer(c, "/settings");
+  const viewer = await loadViewer(c);
   if (viewer instanceof Response) return viewer;
 
   // 親は自分ではアプリを使わないが、種類ができる前からの利用者が親を選ぶと、それまでの端末が残る。

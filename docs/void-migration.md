@@ -196,6 +196,7 @@ type History = Record<string, { plays: number; failures: number }>;        // �
 - `restrictions` の中身は今の `{ weekday: { lunchStart, lunchEnd, endTime }, weekend: {…} }`。サーバーはオブジェクトであることと、大きさ（8KB 以下）だけを見る。
 - `PUT /live-status` の本文は「ライブ状況の形」のキーをすべて持つ。`appRunning` と `updatedAt` は送らない（来ても捨てる）。`phase: "offline"` を送ると停止として書く。
 - `/import` は、進化、設定、記録のどれもない空のアカウントにだけ書く。空でなければ `409`（`{ error: "not_empty" }`）。旧版の `evolution = 6` は、アプリが `5` に丸めてから送る。
+- 子供のアカウントでは、`/import` の `flowers` を取り込まず `0` にする（段階、設定、記録は取り込む）。端末のデータは書き換えられ、子供は花でショップの品（親が決めた現実のごほうび）を買えるため。応答の `flowers` が正なので、アプリは今までどおり上書きすればよい。
 
 ### 進化
 
@@ -205,6 +206,8 @@ type History = Record<string, { plays: number; failures: number }>;        // �
 - 開花: `expectedStage = 5`、`nextStage = 0`、`flowersToAdd = 1`、または夜桜（`'11'`）なら `2`。どの花が咲くかはアプリが決める。
 
 成功すると `{ stage, flowers }` を返す。一致しなければ `409` で `{ error: "conflict", current: { stage, flowers } }` を返す。アプリは、読み直して判定し直す。
+
+子供のアカウントは、1日（日本時間）に1回だけ進化できる（`progress.evolved_on`）。同じ日の2回目は `409` で `{ error: "already_evolved_today", current }` を返し、段階も花も変えない。アプリは日付が変わったときに前の日を評価して1回だけ進化するので、ふつうは当たらない。当たったら `current` で上書きし、再送しない。大人は確かめない。
 
 ### エラー
 

@@ -7,7 +7,7 @@ import { loadViewer } from "../src/server/viewer";
 export type Props = InferProps<typeof loader>;
 
 export const loader = defineHandler(async (c) => {
-  const viewer = await loadViewer(c, "/link");
+  const viewer = await loadViewer(c);
   if (viewer instanceof Response) return viewer;
   const { kind, familyId } = viewer.member;
   if (kind !== "parent" || !familyId)

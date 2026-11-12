@@ -42,13 +42,17 @@ export const daily = sqliteTable(
   (t) => [primaryKey({ columns: [t.accountId, t.date] })],
 );
 
-/** 進化段階（0〜5）と花の数。 */
+/**
+ * 進化段階（0〜5）と花の数。
+ * evolved_on は最後に進化した日（日本時間の YYYY-MM-DD）。子供は1日に1回しか進化できない（/evolve）。
+ */
 export const progress = sqliteTable(
   "progress",
   {
     accountId: text("account_id").primaryKey(),
     stage: integer("stage").notNull().default(0),
     flowers: integer("flowers").notNull().default(0),
+    evolvedOn: text("evolved_on"),
     updatedAt: integer("updated_at").notNull(),
   },
   (t) => [
@@ -108,11 +112,15 @@ export const members = sqliteTable(
   ],
 );
 
-/** 家族への招待コード。親が発行し、Google で登録した親か子供が /welcome で使う。一度しか使えない。 */
+/**
+ * 家族への招待コード。親が発行し、Google で登録した親か子供が /welcome で使う。一度しか使えない。
+ * id は親が一覧から取り消すときに使う（code_hash は短いコードから求められるので、画面に出さない）。
+ */
 export const familyInvites = sqliteTable(
   "family_invites",
   {
     codeHash: text("code_hash").primaryKey(),
+    id: text("id").unique(),
     familyId: text("family_id").notNull(),
     kind: text("kind", { enum: ["parent", "child"] }).notNull(),
     createdBy: text("created_by").notNull(),
