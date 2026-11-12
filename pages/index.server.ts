@@ -4,6 +4,7 @@ import { env } from "void/env";
 import { readLiveStatus } from "../src/server/account-data";
 import { getMember, listChildren, targetAccount } from "../src/server/family";
 import { configuredProviders } from "../src/oauth";
+import { safeNext } from "../src/safe-next";
 import { EMAIL_CODE_ENABLED } from "../src/server/otp-mail";
 
 export type Props = InferProps<typeof loader>;
@@ -11,7 +12,8 @@ export type Props = InferProps<typeof loader>;
 export const loader = defineHandler(async (c) => {
   const user = getUser();
   const providers = configuredProviders(env as Record<string, unknown>);
-  const next = c.req.query("next") ?? "/";
+  // 移動先は同じサイトの経路だけ（/welcome へ渡すときも、ログイン画面へ渡すときも）
+  const next = safeNext(c.req.query("next"));
   // メールのコードは開発のときだけ（auth.ts の EMAIL_CODE_ENABLED と同じ）
   const emailCode = EMAIL_CODE_ENABLED;
   if (!user) return { signedIn: false as const, providers, next, emailCode, status: null };

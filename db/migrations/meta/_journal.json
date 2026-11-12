@@ -22,6 +22,13 @@
       "when": 1794452549387,
       "tag": "20261112030229_mighty_firebrand",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794454444116,
+      "tag": "20261112033404_chubby_the_initiative",
+      "breakpoints": true
     }
   ]
 }

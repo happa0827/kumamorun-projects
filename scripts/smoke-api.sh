@@ -53,6 +53,14 @@ expect 400 "不明な招待コード" -b "$JAR" "${H[@]}" -X POST "$B/api/accoun
 expect 200 "大人を選ぶ" -b "$JAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"adult"}'
 expect 409 "選び直しはできない" -b "$JAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"parent"}'
 expect 302 "選んだ後の /welcome は移動先へ" -b "$JAR" "$B/welcome"
+echo "-- 移動先（?next=）はサイトの中だけ"
+location() { curl -s -o /dev/null -D - -b "$JAR" "$B$1" | tr -d '\r' | grep -i '^location:' | cut -d' ' -f2-; }
+for bad in '/%5Cevil.com' '//evil.com' '/%09/evil.com' 'https://evil.com' '/%5C%5Cevil.com'; do
+  got=$(location "/welcome?next=$bad")
+  if [ "$got" = "/" ]; then echo "ok      next=$bad は / へ"; else echo "NG      next=$bad が「$got」へ"; FAIL=$((FAIL+1)); fi
+done
+got=$(location "/welcome?next=/shop%3Fchild%3Dx")
+if [ "$got" = "/shop?child=x" ]; then echo "ok      next=/shop?child=x はそのまま"; else echo "NG      next=/shop?child=x が「$got」へ"; FAIL=$((FAIL+1)); fi
 
 echo "== ディープリンクのコード交換"
 expect 200 "コード発行" -b "$JAR" "${H[@]}" -X POST "$B/api/login-code"
@@ -205,6 +213,15 @@ expect 400 "使った招待コードの使い回し" -b "$XJAR" "${H[@]}" -X POS
 GID=$(curl -s -b "$GJAR" "$B/api/auth/get-session" | jq -r .user.id)
 expect 200 "親の招待コード" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"parent"}'
 PINVITE=$(jq -r .code <<<"$BODY")
+echo "-- 招待コードを試せるのは1時間に10回（アカウントごと。late は使い回しで1回試した）"
+# 本番の Cloudflare が付ける IP のヘッダーを1回だけ付け、アカウントと IP の両方を数える経路も通す
+expect 400 "IP 付きの試し（2回目）" -b "$XJAR" "${H[@]}" -H "cf-connecting-ip: 203.0.113.$((RANDOM % 250))" -X POST "$B/api/account/kind" -d '{"inviteCode":"ZZZZ-ZZZZ"}'
+RESULTS=$(for i in $(seq 8); do curl -s -o /dev/null -w '%{http_code}\n' -b "$XJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"inviteCode":"ZZZZ-ZZZZ"}'; done)
+if [ "$(grep -c '^400$' <<<"$RESULTS")" = 8 ]; then echo "ok      10回目までは 400"; else echo "NG      10回目までに 400 以外: $(tr '\n' ' ' <<<"$RESULTS")"; FAIL=$((FAIL+1)); fi
+expect 429 "11回目は正しいコードでも止まる" -b "$XJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$PINVITE\"}"
+check "too_many_attempts" '.error == "too_many_attempts"'
+expect 200 "止められた試しはコードを使わない（late はまだ種類なし）" -b "$XJAR" "$B/api/auth/get-session"
+expect 302 "late は /welcome のまま" -b "$XJAR" "$B/"
 signup "$QJAR" "parent2-$EMAIL"
 expect 200 "招待コードで2人目の親になる" -b "$QJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$PINVITE\"}"
 check "親" '.kind == "parent"'

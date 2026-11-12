@@ -37,7 +37,9 @@ function Welcome({ next, name }: { next: string; name: string }) {
     setError(
       response.status === 400
         ? "招待コードが違うか、期限が切れています。親に新しいコードをもらってください"
-        : `選べませんでした（${response.status}）`,
+        : response.status === 429
+          ? "招待コードを試した回数が多すぎます。1時間ほどおいてから、もう一度入れてください"
+          : `選べませんでした（${response.status}）`,
     );
     return true;
   };

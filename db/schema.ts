@@ -131,6 +131,16 @@ export const childSignInCodes = sqliteTable("child_sign_in_codes", {
   usedAt: integer("used_at"),
 });
 
+/**
+ * 試した回数の上限（src/server/rate-limit.ts）。Better Auth の外の経路（招待コードの入力など）に使う。
+ * key は「何を」「誰が」の組（例: "invite:account:<ID>"、"invite:ip:<IP>"）。reset_at を過ぎたら数え直す。
+ */
+export const rateLimits = sqliteTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  resetAt: integer("reset_at").notNull(),
+});
+
 /** ライブ状況。アカウントにつき1行。updated_at はサーバーが入れる。 */
 export const liveStatus = sqliteTable("live_status", {
   accountId: text("account_id").primaryKey(),
