@@ -47,7 +47,10 @@ function Settings({ user, devices }: Loaded) {
           </Button>
         </div>
       </section>
-      {user.kind !== "parent" && <Devices initial={devices} />}
+      {/* 親は端末を持たないが、親を選ぶ前からの端末が残っていれば出す */}
+      {(user.kind !== "parent" || devices.length > 0) && (
+        <Devices initial={devices} parent={user.kind === "parent"} />
+      )}
       <Passkeys />
     </>
   );
@@ -113,7 +116,7 @@ function NameForm({ initial }: { initial: string }) {
   );
 }
 
-function Devices({ initial }: { initial: Loaded["devices"] }) {
+function Devices({ initial, parent }: { initial: Loaded["devices"]; parent: boolean }) {
   const [list, setList] = useState(initial);
   const [error, setError] = useState<string | null>(null);
 
@@ -125,6 +128,13 @@ function Devices({ initial }: { initial: Loaded["devices"] }) {
           アプリでログインしている端末です。失効すると、その端末はログインし直すまで同期できなくなります。
         </p>
       </div>
+      <Alert
+        tone="warning"
+        title="親のアカウントのまま、アプリにログインしている端末があります"
+        open={parent}
+      >
+        親は自分ではアプリを使いません。子供が使うパソコンなら、ここで失効してから、「家族」で子供を選んでアプリにログインし直してください。この端末の記録と花は、このアカウントに残ります。
+      </Alert>
       <Alert
         tone="danger"
         title={error ?? ""}

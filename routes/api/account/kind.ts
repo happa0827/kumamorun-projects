@@ -31,7 +31,8 @@ export const POST = defineHandler(async (c) => {
   if (!body.ok) return body.response;
   if ("kind" in body.data) return respond(c, await chooseKind(user.id, body.data.kind));
 
-  const ip = c.req.header("cf-connecting-ip"); // ローカルの void dev ではないので、アカウントだけで数える
+  // Cloudflare が付ける接続元の IP（ローカルの void dev では 127.0.0.1）。なければアカウントだけで数える
+  const ip = c.req.header("cf-connecting-ip");
   const allowed = await consume([
     { key: `invite:account:${user.id}`, max: INVITE_MAX_PER_ACCOUNT, windowMs: INVITE_WINDOW_MS },
     ...(ip ? [{ key: `invite:ip:${ip}`, max: INVITE_MAX_PER_IP, windowMs: INVITE_WINDOW_MS }] : []),

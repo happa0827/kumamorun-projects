@@ -29,6 +29,11 @@ signup() {
   expect 200 "$email で登録" -c "$jar" -b "$jar" "${H[@]}" -X POST "$B/api/auth/sign-in/email-otp" -d "{\"email\":\"$email\",\"otp\":\"$otp\"}"
 }
 
+# 招待コードを試した回数は IP ごとにも数える。ローカルの void dev も cf-connecting-ip（127.0.0.1）を付けるので、
+# 1時間のうちに何度も流すと前の回の分が残って上限に届く。毎回、ローカルの D1 の IP の分を消してから始める。
+vp exec void db execute "DELETE FROM rate_limits WHERE key LIKE 'invite:ip:%'" >/dev/null 2>&1 \
+  || { echo "rate_limits を消せません（vp exec void db execute）" >&2; exit 2; }
+
 echo "== 認証（メールのコード。初めてのアドレスなので、そのまま登録になる）"
 # コードは void dev の受け箱から読む。受け箱は HTML の一覧しかないので、送る前に空にする。
 DEV_TOKEN=$(<"$(dirname "$0")/../.void/dev-trigger-token")
@@ -228,6 +233,23 @@ check "親" '.kind == "parent"'
 expect 200 "2人目の親も子供の状況を読める" -b "$QJAR" "$B/api/status?account=$GID"
 expect 200 "2人目の親も、親が作った子供を読める" -b "$QJAR" "$B/api/status?account=$CHILD"
 expect 403 "子供はきょうだいの状況を読めない" -b "$CJAR" "$B/api/status?account=$GID"
+
+echo "== 種類ができる前からの利用者（端末あり）が親を選ぶ"
+LJAR=$(mktemp); trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$LJAR"' EXIT
+signup "$LJAR" "legacy-$EMAIL"
+curl -s -o /dev/null -b "$LJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"adult"}'
+LCODE=$(curl -s -b "$LJAR" "${H[@]}" -X POST "$B/api/login-code" | jq -r .url | sed 's/.*code=//')
+LTOKEN=$(curl -s "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$LCODE\",\"deviceName\":\"OLD-PC\"}" | jq -r .token)
+LID=$(curl -s -b "$LJAR" "$B/api/auth/get-session" | jq -r .user.id)
+# 端末を持ったまま「種類ができる前」に戻す（ローカルの D1 だけ）
+vp exec void db execute "DELETE FROM members WHERE account_id = '$LID'" >/dev/null 2>&1
+expect 200 "親を選ぶ" -b "$LJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"parent"}'
+expect 200 "前からの端末は同期できる" -H "Authorization: Bearer $LTOKEN" "$B/api/app/v1/sync"
+expect 200 "親の設定" -b "$LJAR" "$B/settings"
+if grep -q '親のアカウントのまま' <<<"$BODY"; then echo "ok      親の設定に、残った端末の注意が出る"; else echo "NG      親の設定に、残った端末の注意が出ない"; FAIL=$((FAIL+1)); fi
+LDEV=$(grep -o 'data-device-id="[^"]*" data-device-name="OLD-PC"' <<<"$BODY" | cut -d'"' -f2)
+expect 204 "親の設定から失効" -b "$LJAR" "${H[@]}" -X DELETE "$B/api/devices/$LDEV"
+expect 401 "失効した端末" -H "Authorization: Bearer $LTOKEN" "$B/api/app/v1/sync"
 
 echo "== ログアウト"
 eapi 204 "ログアウト" POST /logout
