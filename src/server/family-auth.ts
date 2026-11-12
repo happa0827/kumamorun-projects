@@ -2,21 +2,50 @@
 // ユーザーとセッションを作るところだけ、Better Auth の中（internalAdapter）で行う。
 // - POST /api/auth/family/add-child  { name }  親が、Google を持たない子供のユーザーを作る。{ id, name }
 // - POST /api/auth/family/child-sign-in  { code }  親が発行したログインリンクのコードで、子供としてログインする。
+// - パスキーの登録の情報（GET /api/auth/passkey/generate-register-options）の user.name と user.displayName を、
+//   OS の選択画面で人を見分けられる名前に書き換える（passkeyUserLabel）。
 // auth.ts から読むので、Void の推論した認証の型（getUser など）は使わない（循環する）。
 import type { BetterAuthPlugin } from "better-auth";
-import { APIError, createAuthEndpoint, sessionMiddleware } from "better-auth/api";
+import {
+  APIError,
+  createAuthEndpoint,
+  createAuthMiddleware,
+  getSessionFromCtx,
+  sessionMiddleware,
+} from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { z } from "zod";
 import {
   addCreatedChild,
   consumeChildSignInCode,
   getMember,
+  passkeyUserLabel,
   placeholderChildEmail,
 } from "./family";
 
 export const familyAuth = () =>
   ({
     id: "family",
+    hooks: {
+      after: [
+        {
+          matcher: (context) => context.path === "/passkey/generate-register-options",
+          handler: createAuthMiddleware(async (ctx) => {
+            const options = ctx.context.returned;
+            if (!options || typeof options !== "object" || !("user" in options)) return;
+            const session = await getSessionFromCtx(ctx);
+            if (!session) return;
+            // 書き換えるのは表示の名前だけ。user.id（端末の中の ID）と challenge はそのまま。
+            // 登録の確かめ（challenge、origin、rpID）は名前を見ないので、検証には響かない。
+            const user = (options as { user: Record<string, unknown> }).user;
+            ctx.context.returned = {
+              ...options,
+              user: { ...user, ...passkeyUserLabel(session.user) },
+            };
+          }),
+        },
+      ],
+    },
     endpoints: {
       addFamilyChild: createAuthEndpoint(
         "/family/add-child",

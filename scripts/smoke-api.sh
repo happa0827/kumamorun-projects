@@ -200,6 +200,11 @@ expect 200 "子供がリンクでログイン" -c "$CJAR" -b "$CJAR" "${H[@]}" -
 expect 401 "リンクの使い回し" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$LCODE\"}"
 expect 200 "子供のセッション" -b "$CJAR" "$B/api/auth/get-session"
 check "子供としてログインしている" ".user.id == \"$CHILD\""
+# パスキーの登録で OS に出す名前。画面は name に端末の目安（Windows など）を渡す
+expect 200 "子供のパスキーの登録の情報" -b "$CJAR" "${H[@]}" "$B/api/auth/passkey/generate-register-options?name=Windows"
+check "名前で出る（仮のアドレスと端末の目安は出ない）" '.user.name == "たろう" and .user.displayName == "たろう" and (.challenge | length) > 0 and (tostring | test("invalid") | not)'
+expect 200 "大人のパスキーの登録の情報" -b "$JAR" "${H[@]}" "$B/api/auth/passkey/generate-register-options?name=Windows"
+check "メールアドレスで出る" ".user.name == \"$EMAIL\" and .user.displayName == \"$EMAIL\""
 expect 200 "子供が自分の状況を読む" -b "$CJAR" "$B/api/status"
 check "アプリの書き込みが見える前でも読める" '.appRunning == false'
 expect 403 "子供は品を変えられない" -b "$CJAR" "${H[@]}" -X PUT "$B/api/shop/items" -d '{"items":[]}'

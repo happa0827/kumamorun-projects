@@ -25,6 +25,17 @@ export const placeholderChildEmail = () => `child-${crypto.randomUUID()}@${CHILD
 export const visibleEmail = (email: string) =>
   email.endsWith(`@${CHILD_EMAIL_DOMAIN}`) ? null : email;
 
+/**
+ * パスキーの登録で、OS の選択画面に出すアカウントの名前。
+ * - name（userName）: 見分けるための名前。Google の人はメールアドレス、親が作った子供は名前（仮のアドレスは出さない）
+ * - displayName: 人の名前。なければ name と同じ
+ * Better Auth の passkey は、name に画面から渡した端末の目安（「Windows」など）を、displayName にメールアドレスを使う。
+ */
+export function passkeyUserLabel(user: { email: string; name: string }) {
+  const name = visibleEmail(user.email) ?? (user.name.trim() || "くまもーるん");
+  return { name, displayName: user.name.trim() || name };
+}
+
 export async function getMember(accountId: string): Promise<Member | null> {
   const [row] = await db
     .select({ kind: members.kind, familyId: members.familyId })
