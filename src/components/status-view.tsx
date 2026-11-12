@@ -9,7 +9,16 @@ import { formatAgo, formatRemaining, remainingNow, type StatusResponse } from ".
 
 const POLL_MS = 10_000;
 
-export function StatusView({ initial }: { initial: StatusResponse }) {
+/** account と name は、親が子供の状況を見るとき。自分の状況なら渡さない。 */
+export function StatusView({
+  initial,
+  account,
+  name,
+}: {
+  initial: StatusResponse;
+  account?: string;
+  name?: string;
+}) {
   const [data, setData] = useState(initial);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -20,7 +29,8 @@ export function StatusView({ initial }: { initial: StatusResponse }) {
     let alive = true;
     const load = async () => {
       try {
-        const response = await fetch("/api/status", { headers: { accept: "application/json" } });
+        const url = account ? `/api/status?account=${encodeURIComponent(account)}` : "/api/status";
+        const response = await fetch(url, { headers: { accept: "application/json" } });
         if (response.status === 401) return location.reload();
         if (!response.ok) throw new Error(`状況を読めませんでした（${response.status}）`);
         const next = (await response.json()) as StatusResponse;
@@ -39,7 +49,7 @@ export function StatusView({ initial }: { initial: StatusResponse }) {
       window.clearInterval(poll);
       window.clearInterval(tick);
     };
-  }, []);
+  }, [account]);
 
   const status = data.status;
   const stopped = !data.appRunning;
@@ -52,7 +62,7 @@ export function StatusView({ initial }: { initial: StatusResponse }) {
     <>
       <section className="panel" aria-labelledby="status-title">
         <div className="panel-head">
-          <h1 id="status-title">ライブ状況</h1>
+          <h1 id="status-title">{name ? `${name}のライブ状況` : "ライブ状況"}</h1>
           <p className="muted">
             <Clock size={13} strokeWidth={1.75} aria-hidden="true" />{" "}
             {data.updatedAt == null

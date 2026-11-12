@@ -1,5 +1,6 @@
 // ショップ: 花で品（チケット）を買う。旧 happa0827/kumamorun の「くまもーるん交換所」を引き継ぐ。
 // 品と通知先はアカウントごとに D1 に持つ（旧版はブラウザの localStorage）。
+// 大人は全部、子供は買うだけ、親は子供の品と通知先を決める（買わない）。
 import { useState } from "react";
 import { Mail, Plus, RotateCcw, Save, ShoppingBag, Trash2 } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
@@ -7,29 +8,59 @@ import { Button } from "@/components/arc/button/button";
 import { Card } from "@/components/arc/card/card";
 import { EmptyState } from "@/components/arc/empty-state/empty-state";
 import { Input } from "@/components/arc/input/input";
+import { Link } from "@void/react";
+import { ChildTabs } from "../src/components/child-tabs";
 import { ConfirmDialog } from "../src/components/confirm-dialog";
 import type { Props } from "./shop.server";
 
-type Loaded = Extract<Props, { shop: unknown }>["shop"];
+type Loaded = NonNullable<Extract<Props, { shop: unknown }>["shop"]>;
 type Item = Loaded["items"][number];
 type Purchase = Loaded["purchases"][number];
 type Message = { ok: boolean; text: string } | null;
+type Mode = "adult" | "child" | "parent";
+/** 親が子供のショップを見るとき、その子供 */
+type Owner = { id: string; name: string };
 
 const dateTime = new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeStyle: "short" });
 
 export default function ShopPage(props: Props) {
-  if (!("shop" in props)) return null; // ログインしていなければ loader が移動させる
-  return <Shop initial={props.shop} />;
+  if (!("mode" in props)) return null; // ログインしていなければ loader が移動させる
+  if (props.mode !== "parent") return <Shop mode={props.mode} initial={props.shop} />;
+
+  const owner = props.children.find((c) => c.id === props.selected);
+  if (!owner || !props.shop) {
+    return (
+      <section className="panel">
+        <EmptyState
+          icon={<ShoppingBag size={20} strokeWidth={1.75} aria-hidden="true" />}
+          title="まだ子供がいません"
+          description="「家族」から子供を追加すると、子供のショップの品と通知先を決められます。"
+          action={<Link href="/family">家族へ</Link>}
+        />
+      </section>
+    );
+  }
+  return (
+    <>
+      <ChildTabs base="/shop" list={props.children} selected={owner.id} />
+      {/* 子供を切り替えたら、編集中の値も作り直す */}
+      <Shop key={owner.id} mode="parent" initial={props.shop} owner={owner} />
+    </>
+  );
 }
 
-function Shop({ initial }: { initial: Loaded }) {
+function Shop({ mode, initial, owner }: { mode: Mode; initial: Loaded; owner?: Owner }) {
   const [items, setItems] = useState(initial.items);
   const [flowers, setFlowers] = useState(initial.flowers);
   const [history, setHistory] = useState(initial.purchases);
+  // 親が子供のショップを変えるときは ?account= を付ける
+  const query = owner ? `?account=${encodeURIComponent(owner.id)}` : "";
 
   return (
     <>
       <Storefront
+        mode={mode}
+        owner={owner}
         items={items}
         flowers={flowers}
         hasNotify={initial.mailEnabled && initial.notifyEmails.length > 0}
@@ -37,12 +68,22 @@ function Shop({ initial }: { initial: Loaded }) {
         onPurchased={(purchase) => setHistory((current) => [purchase, ...current].slice(0, 20))}
       />
       <History list={history} />
-      <ItemEditor items={items} maxItems={initial.limits.items} onSaved={setItems} />
-      <NotifyEditor
-        enabled={initial.mailEnabled}
-        initial={initial.notifyEmails}
-        max={initial.limits.notifyEmails}
-      />
+      {mode !== "child" && (
+        <>
+          <ItemEditor
+            items={items}
+            maxItems={initial.limits.items}
+            query={query}
+            onSaved={setItems}
+          />
+          <NotifyEditor
+            enabled={initial.mailEnabled}
+            initial={initial.notifyEmails}
+            max={initial.limits.notifyEmails}
+            query={query}
+          />
+        </>
+      )}
     </>
   );
 }
@@ -52,12 +93,16 @@ function FlowerIcon({ size = 28 }: { size?: number }) {
 }
 
 function Storefront({
+  mode,
+  owner,
   items,
   flowers,
   hasNotify,
   onFlowers,
   onPurchased,
 }: {
+  mode: Mode;
+  owner?: Owner;
   items: Item[];
   flowers: number;
   hasNotify: boolean;
@@ -107,8 +152,12 @@ function Storefront({
     <section className="panel" aria-labelledby="shop-title">
       <div className="shop-head">
         <div className="panel-head">
-          <h1 id="shop-title">ショップ</h1>
-          <p className="muted">開花で集めた花を使って、品と交換できます。</p>
+          <h1 id="shop-title">{owner ? `${owner.name}のショップ` : "ショップ"}</h1>
+          <p className="muted">
+            {mode === "parent"
+              ? "子供が開花で集めた花と、交換できる品です。買うのは子供です。"
+              : "開花で集めた花を使って、品と交換できます。"}
+          </p>
         </div>
         <p className="flower-count" aria-label={`花 ${flowers}`}>
           <FlowerIcon size={40} />
@@ -125,7 +174,11 @@ function Storefront({
         <EmptyState
           icon={<ShoppingBag size={20} strokeWidth={1.75} aria-hidden="true" />}
           title="品がありません"
-          description="下の「品の設定」から追加してください。"
+          description={
+            mode === "child"
+              ? "親に品を追加してもらってください。"
+              : "下の「品の設定」から追加してください。"
+          }
         />
       ) : (
         <ul className="shop-items">
@@ -135,18 +188,20 @@ function Storefront({
                 title={item.name}
                 description={`花 ${item.price}`}
                 action={
-                  <ConfirmDialog
-                    trigger={
-                      <Button type="button" size="sm" disabled={flowers < item.price}>
-                        購入する
-                      </Button>
-                    }
-                    title={`${item.name}を購入しますか？`}
-                    description={`花を${item.price}つ使います（残り ${flowers - item.price}）。取り消せません。`}
-                    confirmLabel="購入する"
-                    confirmVariant="primary"
-                    onConfirm={() => buy(item)}
-                  />
+                  mode !== "parent" && (
+                    <ConfirmDialog
+                      trigger={
+                        <Button type="button" size="sm" disabled={flowers < item.price}>
+                          購入する
+                        </Button>
+                      }
+                      title={`${item.name}を購入しますか？`}
+                      description={`花を${item.price}つ使います（残り ${flowers - item.price}）。取り消せません。`}
+                      confirmLabel="購入する"
+                      confirmVariant="primary"
+                      onConfirm={() => buy(item)}
+                    />
+                  )
                 }
               >
                 <span className="flower-row" aria-hidden="true">
@@ -222,10 +277,13 @@ function draftErrors(draft: Draft) {
 function ItemEditor({
   items,
   maxItems,
+  query,
   onSaved,
 }: {
   items: Item[];
   maxItems: number;
+  /** 親が子供の品を変えるときの ?account=… */
+  query: string;
   onSaved: (items: Item[]) => void;
 }) {
   const [drafts, setDrafts] = useState(() => toDraft(items));
@@ -271,7 +329,7 @@ function ItemEditor({
           event.preventDefault();
           if (saving || invalid || !dirty) return;
           setSaving(true);
-          const response = await fetch("/api/shop/items", {
+          const response = await fetch(`/api/shop/items${query}`, {
             method: "PUT",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
@@ -346,7 +404,10 @@ function ItemEditor({
             description="チョコパイ、ハイチュウ、コーラ、マックの4つに戻ります。購入の記録は消えません。"
             confirmLabel="既定に戻す"
             onConfirm={async () =>
-              apply(await fetch("/api/shop/items", { method: "DELETE" }), "品を既定に戻しました")
+              apply(
+                await fetch(`/api/shop/items${query}`, { method: "DELETE" }),
+                "品を既定に戻しました",
+              )
             }
           />
         </div>
@@ -359,10 +420,13 @@ function NotifyEditor({
   enabled,
   initial,
   max,
+  query,
 }: {
   enabled: boolean;
   initial: string[];
   max: number;
+  /** 親が子供の通知先を変えるときの ?account=… */
+  query: string;
 }) {
   const [emails, setEmails] = useState(initial);
   const [input, setInput] = useState("");
@@ -371,7 +435,7 @@ function NotifyEditor({
 
   const save = async (next: string[], text: string) => {
     setBusy(true);
-    const response = await fetch("/api/shop/notify-emails", {
+    const response = await fetch(`/api/shop/notify-emails${query}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ emails: next }),
