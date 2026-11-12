@@ -219,8 +219,12 @@ echo "-- 招待コード"
 expect 200 "子供の招待コード" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"child"}'
 INVITE=$(jq -r .code <<<"$BODY")
 signup "$GJAR" "google-child-$EMAIL"
-expect 200 "招待コードで子供になる（小文字と記号なしでも通る）" -b "$GJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$(tr -d '-' <<<"$INVITE" | tr 'A-Z' 'a-z')\"}"
+expect 200 "入る前に招待コードを確かめる" -b "$GJAR" "${H[@]}" -X POST "$B/api/account/invite-preview" -d "{\"inviteCode\":\"$INVITE\"}"
+check "子供として、招いた親のアドレスが見える" ".kind == \"child\" and .inviter.email == \"parent-$EMAIL\" and (.parents | length) == 1"
+expect 400 "違うコードの確かめ" -b "$GJAR" "${H[@]}" -X POST "$B/api/account/invite-preview" -d '{"inviteCode":"ZZZZ-ZZZZ"}'
+expect 200 "招待コードで子供になる（確かめてもコードは使われない。小文字と記号なしでも通る）" -b "$GJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$(tr -d '-' <<<"$INVITE" | tr 'A-Z' 'a-z')\"}"
 check "子供" '.kind == "child"'
+expect 409 "入ったあとの確かめ" -b "$GJAR" "${H[@]}" -X POST "$B/api/account/invite-preview" -d "{\"inviteCode\":\"$INVITE\"}"
 signup "$XJAR" "late-$EMAIL"
 expect 400 "使った招待コードの使い回し" -b "$XJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$INVITE\"}"
 GID=$(curl -s -b "$GJAR" "$B/api/auth/get-session" | jq -r .user.id)
@@ -241,6 +245,25 @@ check "親" '.kind == "parent"'
 expect 200 "2人目の親も子供の状況を読める" -b "$QJAR" "$B/api/status?account=$GID"
 expect 200 "2人目の親も、親が作った子供を読める" -b "$QJAR" "$B/api/status?account=$CHILD"
 expect 403 "子供はきょうだいの状況を読めない" -b "$CJAR" "$B/api/status?account=$GID"
+echo "-- 親は、自分の Google で登録した子供になりすませない"
+expect 404 "Google の子供のログインリンクは作れない" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$GID/sign-in-link"
+expect 403 "Google の子供のアプリのコードも作れない" -b "$PJAR" "${H[@]}" -X POST "$B/api/login-code?account=$GID"
+echo "-- 親が子供の端末を失効する"
+expect 200 "Google の子供が自分でアプリのコードを発行" -b "$GJAR" "${H[@]}" -X POST "$B/api/login-code"
+GCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+expect 200 "Google の子供の端末の交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$GCODE\",\"deviceName\":\"GOOGLE-CHILD-PC\"}"
+GTOKEN=$(jq -r .token <<<"$BODY")
+expect 200 "家族の画面に子供の端末が出る" -b "$PJAR" "$B/family"
+CDEV=$(grep -o 'data-device-id="[^"]*" data-device-name="CHILD-PC"' <<<"$BODY" | cut -d'"' -f2)
+GDEV=$(grep -o 'data-device-id="[^"]*" data-device-name="GOOGLE-CHILD-PC"' <<<"$BODY" | cut -d'"' -f2)
+if [ -n "$CDEV" ] && [ -n "$GDEV" ]; then echo "ok      両方の子供の端末が出る"; else echo "NG      子供の端末が出ない（CHILD-PC=$CDEV GOOGLE-CHILD-PC=$GDEV）"; FAIL=$((FAIL+1)); fi
+expect 404 "大人は子供の端末を失効できない" -b "$JAR" "${H[@]}" -X DELETE "$B/api/devices/$CDEV"
+expect 404 "子供はきょうだいの端末を失効できない" -b "$GJAR" "${H[@]}" -X DELETE "$B/api/devices/$CDEV"
+expect 200 "失効の前は同期できる" -H "Authorization: Bearer $CTOKEN" "$B/api/app/v1/sync"
+expect 204 "親が、親が作った子供の端末を失効" -b "$PJAR" "${H[@]}" -X DELETE "$B/api/devices/$CDEV"
+expect 401 "失効した子供の端末" -H "Authorization: Bearer $CTOKEN" "$B/api/app/v1/sync"
+expect 204 "2人目の親が、Google の子供の端末を失効" -b "$QJAR" "${H[@]}" -X DELETE "$B/api/devices/$GDEV"
+expect 401 "失効した Google の子供の端末" -H "Authorization: Bearer $GTOKEN" "$B/api/app/v1/sync"
 
 echo "== 種類ができる前からの利用者（端末あり）が親を選ぶ"
 LJAR=$(mktemp); trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$LJAR"' EXIT

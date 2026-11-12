@@ -1,4 +1,5 @@
-// 家族（親だけ）。子供の一覧と追加、子供のログインリンク、招待コード、親の一覧。
+// 家族（親だけ）。子供の一覧と追加、子供のログイン、子供の端末の失効、招待コード、親の一覧。
+// 親がログインさせられる（ログインリンク、アプリ）のは、親が作った子供だけ。Google の子供は自分でログインする。
 import { useState } from "react";
 import { Link } from "@void/react";
 import { Copy, Link2, Plus, UserPlus } from "lucide-react";
@@ -8,6 +9,7 @@ import { Button } from "@/components/arc/button/button";
 import { Card } from "@/components/arc/card/card";
 import { EmptyState } from "@/components/arc/empty-state/empty-state";
 import { Input } from "@/components/arc/input/input";
+import { ConfirmDialog } from "../src/components/confirm-dialog";
 import type { Props } from "./family.server";
 
 type Loaded = Extract<Props, { children: unknown }>;
@@ -85,7 +87,15 @@ function Children({ initial }: { initial: Child[] }) {
           const child = (await response.json()) as { id: string; name: string };
           setList((current) => [
             ...current,
-            { ...child, email: null, flowers: 0, appRunning: false, keeping: false },
+            {
+              ...child,
+              email: null,
+              createdByParent: true,
+              flowers: 0,
+              appRunning: false,
+              keeping: false,
+              devices: [],
+            },
           ]);
           setName("");
           setMessage({
@@ -146,40 +156,48 @@ function ChildCard({ child }: { child: Child }) {
         <div className="row">
           <Link href={`/?${q}`}>状況</Link>
           <Link href={`/shop?${q}`}>ショップ</Link>
-          <Link href={`/link?${q}`}>このパソコンのアプリでログイン</Link>
+          {child.createdByParent && <Link href={`/link?${q}`}>このパソコンのアプリでログイン</Link>}
         </div>
-        <div className="row">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            loading={busy}
-            onClick={async () => {
-              setBusy(true);
-              setError(null);
-              const response = await fetch(
-                `/api/family/children/${encodeURIComponent(child.id)}/sign-in-link`,
-                { method: "POST" },
-              );
-              setBusy(false);
-              if (!response.ok) {
-                setError(`リンクを作れませんでした（${response.status}）`);
-                return;
-              }
-              setLink((await response.json()) as { url: string; expiresAt: number });
-            }}
-          >
-            <Link2 size={16} strokeWidth={1.75} aria-hidden="true" />
-            サイトのログインリンクを作る
-          </Button>
-        </div>
+        {!child.createdByParent && (
+          <p className="muted">
+            自分の Google で登録した子供です。サイトにもアプリにも、子供が自分でログインします。
+          </p>
+        )}
+        {child.createdByParent && (
+          <div className="row">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              loading={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError(null);
+                const response = await fetch(
+                  `/api/family/children/${encodeURIComponent(child.id)}/sign-in-link`,
+                  { method: "POST" },
+                );
+                setBusy(false);
+                if (!response.ok) {
+                  setError(`リンクを作れませんでした（${response.status}）`);
+                  return;
+                }
+                setLink((await response.json()) as { url: string; expiresAt: number });
+              }}
+            >
+              <Link2 size={16} strokeWidth={1.75} aria-hidden="true" />
+              サイトのログインリンクを作る
+            </Button>
+          </div>
+        )}
         {link && (
           <CopyField
             label="ログインリンク"
             value={link.url}
-            note={`${time.format(link.expiresAt)}まで、一度だけ使えます。子供の端末で開くと、${child.name}としてログインします。`}
+            note={`${time.format(link.expiresAt)}まで、一度だけ使えます。子供の端末で開くと、${child.name}としてログインします。作り直すと、前のリンクは使えなくなります。`}
           />
         )}
+        <ChildDevices childName={child.name} initial={child.devices} />
         <Alert
           tone="danger"
           title={error ?? ""}
@@ -188,6 +206,59 @@ function ChildCard({ child }: { child: Child }) {
         />
       </div>
     </Card>
+  );
+}
+
+/** 子供のアプリの端末。パソコンをなくしたときなどに、親が失効できる。 */
+function ChildDevices({ childName, initial }: { childName: string; initial: Child["devices"] }) {
+  const [list, setList] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+  if (list.length === 0) return <p className="muted">アプリでログインしている端末はありません。</p>;
+  return (
+    <div className="stack">
+      <p className="muted">
+        アプリでログインしている端末です。なくしたときなどは失効してください。その端末は、ログインし直すまで同期できなくなります。
+      </p>
+      <ul className="cards">
+        {list.map((device) => (
+          <li key={device.id} data-device-id={device.id} data-device-name={device.name}>
+            <Card
+              title={device.name}
+              description={`最終利用 ${time.format(device.lastSeenAt)}`}
+              action={
+                <ConfirmDialog
+                  trigger={
+                    <Button type="button" variant="danger" size="sm">
+                      失効
+                    </Button>
+                  }
+                  title={`${childName}の「${device.name}」を失効しますか？`}
+                  description="この端末のアプリは、ログインし直すまで同期できなくなります。"
+                  confirmLabel="失効する"
+                  onConfirm={async () => {
+                    const response = await fetch(`/api/devices/${encodeURIComponent(device.id)}`, {
+                      method: "DELETE",
+                    });
+                    if (!response.ok && response.status !== 404) {
+                      setError(`失効できませんでした（${response.status}）`);
+                      return;
+                    }
+                    setList((current) => current.filter((d) => d.id !== device.id));
+                    setError(null);
+                  }}
+                />
+              }
+            />
+          </li>
+        ))}
+      </ul>
+      <Alert
+        tone="danger"
+        title={error ?? ""}
+        open={error !== null}
+        onDismiss={() => setError(null)}
+      />
+    </div>
   );
 }
 

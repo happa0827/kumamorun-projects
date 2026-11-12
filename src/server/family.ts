@@ -209,7 +209,65 @@ export async function consumeChildSignInCode(code: string): Promise<string | nul
     )
     .returning({ accountId: childSignInCodes.accountId });
   if (!row) return null;
-  // コードの発行後に家族から外れていたら使わせない
+  // コードの発行後に家族から外れていたら使わせない。親が作った子供でなければ使わせない（発行のときにも確かめている）
   const member = await getMember(row.accountId);
-  return member?.kind === "child" ? row.accountId : null;
+  if (member?.kind !== "child" || !(await isCreatedChild(row.accountId))) return null;
+  return row.accountId;
+}
+
+/**
+ * 親が作った子供（Google を持たず、仮のメールアドレスの人）か。
+ * 親が子供として「ログインさせる」（サイトのログインリンク、アプリのログインコード）のは、この子供だけ。
+ * 自分の Google で登録した子供は自分でログインするので、親がなりすませないようにする。
+ */
+export async function isCreatedChild(accountId: string): Promise<boolean> {
+  const [row] = await db.all<{ email: string }>(
+    sql`SELECT email FROM "user" WHERE id = ${accountId}`,
+  );
+  return row !== undefined && visibleEmail(row.email) === null;
+}
+
+/** 親が、子供として「ログインさせて」よいアカウント。同じ家族の、親が作った子供だけ。 */
+export async function signInAsTarget(
+  viewerId: string,
+  viewer: Member,
+  requested: string | null | undefined,
+): Promise<string | null> {
+  if (viewer.kind !== "parent") return null;
+  const childId = await targetAccount(viewerId, viewer, requested);
+  return childId && (await isCreatedChild(childId)) ? childId : null;
+}
+
+export type InvitePreview = {
+  kind: "parent" | "child";
+  inviter: { name: string; email: string | null };
+  parents: { name: string; email: string | null }[];
+};
+
+/** 招待コードを使う前に、どの家族に何として入るかを見る（コードは使わない）。使えないコードなら null。 */
+export async function previewInvite(code: string): Promise<InvitePreview | null> {
+  const now = Date.now();
+  const [invite] = await db
+    .select({
+      familyId: familyInvites.familyId,
+      kind: familyInvites.kind,
+      createdBy: familyInvites.createdBy,
+    })
+    .from(familyInvites)
+    .where(
+      and(
+        eq(familyInvites.codeHash, await sha256Hex(normalizeInviteCode(code))),
+        isNull(familyInvites.usedAt),
+        gt(familyInvites.expiresAt, now),
+      ),
+    );
+  if (!invite) return null;
+  const parents = (await listFamily(invite.familyId)).filter((p) => p.kind === "parent");
+  const inviter = parents.find((p) => p.id === invite.createdBy);
+  return {
+    kind: invite.kind,
+    // 招いた親が家族から外れていても、コードは使える（外す機能はまだない）
+    inviter: { name: inviter?.name ?? "", email: inviter?.email ?? null },
+    parents: parents.map((p) => ({ name: p.name, email: p.email })),
+  };
 }

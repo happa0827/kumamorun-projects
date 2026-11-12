@@ -33,10 +33,17 @@ export default function LinkPage(props: Props) {
           親は自分ではアプリを使いません。このパソコンを使う子供を選んで、アプリにログインさせてください。
         </p>
       </div>
+      {props.selfSignIn.length > 0 && (
+        <p className="muted">
+          {props.selfSignIn.join("、")}
+          は自分の Google で登録しているので、子供が自分でログインします。このパソコンで子供が
+          Google でログインしてから、もう一度アプリの「ログイン」を押してください。
+        </p>
+      )}
       {children.length === 0 ? (
         <EmptyState
-          title="まだ子供がいません"
-          description="「家族」から子供を追加してください。"
+          title="ログインさせられる子供がいません"
+          description="「家族」で追加した子供（Google なし）を、ここでログインさせられます。"
           action={<Link href="/family">家族へ</Link>}
         />
       ) : (
