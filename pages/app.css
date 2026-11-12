@@ -115,15 +115,28 @@ body {
   padding-left: 1.25rem;
 }
 
+/* プライバシーポリシーへのボタン。画面の右下に固定する（本文の下の余白 4rem の上に乗る） */
 .site-footer {
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 0 1rem 2rem;
-  font-size: var(--text-sm);
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 10;
 }
 
 .site-footer a {
+  display: inline-block;
+  padding: 0.35rem 0.8rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-resting);
   color: var(--text-secondary);
+  font-size: var(--text-xs, 0.75rem);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.site-footer a:hover {
+  color: var(--foreground);
 }
 
 /* 登録とログインのカード（Arc の sign-in ブロック）を中央に置く */
