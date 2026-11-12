@@ -190,9 +190,12 @@ expect 200 "親が子供の品を決める" -b "$PJAR" "${H[@]}" -X PUT "$B/api/
 expect 403 "大人は他人の品を変えられない" -b "$JAR" "${H[@]}" -X PUT "$B/api/shop/items?account=$CHILD" -d '{"items":[]}'
 expect 403 "親は買えない" -b "$PJAR" "${H[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"c","expectedPrice":2}'
 expect 200 "親が子供のショップを開く" -b "$PJAR" "$B/shop?child=$CHILD"
-expect 200 "子供のログインリンク" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
+expect 200 "子供のログインリンク（1本目）" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
+OLDLCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
+expect 200 "子供のログインリンク（2本目）" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
 LCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
 expect 404 "大人の ID のログインリンクは作れない" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$(curl -s -b "$JAR" "$B/api/auth/get-session" | jq -r .user.id)/sign-in-link"
+expect 401 "新しいリンクを発行すると、前のリンクは使えない" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$OLDLCODE\"}"
 expect 200 "子供がリンクでログイン" -c "$CJAR" -b "$CJAR" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$LCODE\"}"
 expect 401 "リンクの使い回し" "${H[@]}" -X POST "$B/api/auth/family/child-sign-in" -d "{\"code\":\"$LCODE\"}"
 expect 200 "子供のセッション" -b "$CJAR" "$B/api/auth/get-session"

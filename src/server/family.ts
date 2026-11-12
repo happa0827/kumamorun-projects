@@ -167,12 +167,19 @@ export async function addCreatedChild(childId: string, parentId: string, familyI
 export async function createChildSignInCode(parentId: string, childId: string) {
   const code = newLoginCode();
   const expiresAt = Date.now() + CHILD_SIGN_IN_TTL_MS;
-  await db.insert(childSignInCodes).values({
-    codeHash: await sha256Hex(code),
-    accountId: childId,
-    createdBy: parentId,
-    expiresAt,
-  });
+  // 使えるリンクは子供ごとに1本だけ。前に発行してまだ使われていないものを消してから入れる（1つの batch）。
+  // 親が2人いても同じ（どちらが発行しても、その子供の古いリンクは使えなくなる）。
+  await db.batch([
+    db
+      .delete(childSignInCodes)
+      .where(and(eq(childSignInCodes.accountId, childId), isNull(childSignInCodes.usedAt))),
+    db.insert(childSignInCodes).values({
+      codeHash: await sha256Hex(code),
+      accountId: childId,
+      createdBy: parentId,
+      expiresAt,
+    }),
+  ]);
   return { code, expiresAt };
 }
 
