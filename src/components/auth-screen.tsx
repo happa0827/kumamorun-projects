@@ -94,10 +94,8 @@ function errorText(error: AuthError, fallback: string): string {
   }
 }
 
-/** 外のサイトへ飛ばされないよう、"/" で始まり "//" で始まらない経路だけを許す */
-export function safeNext(next: string | null | undefined): string {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
-}
+/** 外のサイトへ飛ばされないよう、同じサイトの経路だけを許す（判定は src/safe-next.ts） */
+export { safeNext } from "../safe-next";
 
 // ここから下の stepMotion、roll、RollingTime、useStepHeight は、ブロックの sign-in.tsx と同じ。
 const stepMotion: Variants = {

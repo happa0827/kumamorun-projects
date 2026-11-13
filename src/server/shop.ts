@@ -79,6 +79,13 @@ export async function saveConfig(accountId: string, patch: Partial<ShopConfig>) 
   return next;
 }
 
+/** 通知先が1つもないときだけ、入れる。前から決めてある通知先は変えない。 */
+export async function setNotifyEmailsIfEmpty(accountId: string, notifyEmails: string[]) {
+  const current = await readConfig(accountId);
+  if (current.notifyEmails.length > 0) return current;
+  return saveConfig(accountId, { notifyEmails });
+}
+
 /** 既定の品に戻す。通知先は残す。 */
 export async function resetItems(accountId: string) {
   return saveConfig(accountId, { items: DEFAULT_ITEMS });

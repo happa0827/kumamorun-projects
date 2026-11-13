@@ -2,6 +2,8 @@
 // { daily, history, stage, flowers, restrictions }
 // 空のアカウント（進化、設定、記録のどれもない）にだけ書く。空でなければ 409。
 // 旧版の evolution=6 は、アプリが 5 に丸めてから送る（ここでは 0〜5 以外は 422）。
+// 子供の花は取り込まない（0 にする）。端末の中のデータは書き換えられるので、
+// 親が作ったばかりの空の子供に、好きな数の花を持ち込めてしまう。子供は花でショップの品（現実のごほうび）を買える。
 import { daily, progress, settings } from "@schema";
 import { defineHandler } from "void";
 import { db, eq } from "void/db";
@@ -9,6 +11,7 @@ import { z } from "zod";
 import { readSync, toDayRows } from "../../../../src/server/account-data";
 import { parseBody } from "../../../../src/server/body";
 import { requireDevice } from "../../../../src/server/device-auth";
+import { getMember } from "../../../../src/server/family";
 import { Daily, Flowers, History, Restrictions, Stage } from "../../../../src/server/shapes";
 
 const Body = z.object({
@@ -42,7 +45,8 @@ export const POST = defineHandler(requireDevice, async (c) => {
   if (p.length || s.length || d.length) return notEmpty();
 
   const now = Date.now();
-  const { stage, flowers, restrictions } = body.data;
+  const { stage, restrictions } = body.data;
+  const flowers = (await getMember(accountId))?.kind === "child" ? 0 : body.data.flowers;
   const rows = toDayRows(accountId, body.data);
   // progress は素の INSERT。同時に2回取り込んでも、2回目は主キーの衝突で batch ごと取り消される。
   const statements = [

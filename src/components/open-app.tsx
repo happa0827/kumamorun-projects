@@ -4,7 +4,16 @@ import { ExternalLink } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
 import { Button } from "@/components/arc/button/button";
 
-export function OpenAppButton({ primary = false }: { primary?: boolean }) {
+/** account は、親が子供としてアプリにログインさせるときの子供の ID */
+export function OpenAppButton({
+  primary = false,
+  account,
+  label = "アプリを開く",
+}: {
+  primary?: boolean;
+  account?: string;
+  label?: string;
+}) {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,12 +30,15 @@ export function OpenAppButton({ primary = false }: { primary?: boolean }) {
             setBusy(true);
             setError(null);
             try {
-              const response = await fetch("/api/login-code", { method: "POST" });
+              const url = account
+                ? `/api/login-code?account=${encodeURIComponent(account)}`
+                : "/api/login-code";
+              const response = await fetch(url, { method: "POST" });
               if (!response.ok)
                 throw new Error(`コードを発行できませんでした（${response.status}）`);
-              const { url } = (await response.json()) as { url: string };
+              const { url: deepLink } = (await response.json()) as { url: string };
               setSent(true);
-              location.href = url;
+              location.href = deepLink;
             } catch (e) {
               setError(e instanceof Error ? e.message : "コードを発行できませんでした");
             } finally {
@@ -35,7 +47,7 @@ export function OpenAppButton({ primary = false }: { primary?: boolean }) {
           }}
         >
           <ExternalLink size={16} strokeWidth={1.75} aria-hidden="true" />
-          アプリを開く
+          {label}
         </Button>
       </div>
       <Alert tone="info" title="アプリに切り替わりましたか？" open={sent && error === null}>
