@@ -255,7 +255,7 @@ type History = Record<string, { plays: number; failures: number }>;        // �
 | `/family` | 親だけ。子供の一覧と追加、子供のログインリンク、子供の端末の失効、招待コード、親の一覧 |
 | `/child-login` | 子供のログインリンク。`#code=…` を `/api/auth/family/child-sign-in` で使い、子供としてログインする |
 
-親は、`/`、`/shop`、`/link` で `?child=<ID>` を付けて子供を選ぶ。API は `?account=<ID>` で子供を指す（`/api/status`、`/api/login-code`、`/api/shop/items`、`/api/shop/notify-emails`）。ショップの品と通知先を変えられるのは大人（自分）と親（子供）、買えるのは大人と子供（自分の花）。子供が家族に入ると、通知先に招いた親のメールアドレスが入る。招待コードを試せるのは、1時間にアカウントごと10回、IP ごと30回まで（超えると `429`）。`?next=` の移動先は、URL として解釈して同じサイトの経路だけを通す（`src/safe-next.ts`。`/\evil.com` のような形を通さない）。
+親は、`/`、`/shop`、`/link` で `?child=<ID>` を付けて子供を選ぶ。API は `?account=<ID>` で子供を指す（`/api/status`、`/api/login-code`、`/api/shop/items`、`/api/shop/notify-emails`）。ショップの品と通知先を変えられるのは大人（自分）と親（子供）、買えるのは大人と子供（自分の花）。子供が家族に入ると、通知先に招いた親のメールアドレスが入る。親の画面では、通知先を家族の親からチェックで選べ、親以外の宛先（祖父母など）も手で足せる（合わせて5件まで）。招待コードを試せるのは、1時間にアカウントごと10回、IP ごと30回まで（超えると `429`）。`?next=` の移動先は、URL として解釈して同じサイトの経路だけを通す（`src/safe-next.ts`。`/\evil.com` のような形を通さない）。
 
 #### 状況ページの表示
 

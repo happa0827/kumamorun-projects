@@ -1,6 +1,7 @@
 // ショップ: 花で品（チケット）を買う。旧 happa0827/kumamorun の「くまもーるん交換所」を引き継ぐ。
 // 品と通知先はアカウントごとに D1 に持つ（旧版はブラウザの localStorage）。
 // 大人は全部、子供は買うだけ、親は子供の品と通知先を決める（買わない）。
+// 親の画面では、通知先を家族の親からチェックで選べ、親以外の宛先も手で足せる（合わせて上限まで）。
 import { useState } from "react";
 import { Mail, Plus, RotateCcw, Save, ShoppingBag, Trash2 } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
@@ -20,6 +21,10 @@ type Message = { ok: boolean; text: string } | null;
 type Mode = "adult" | "child" | "parent";
 /** 親が子供のショップを見るとき、その子供 */
 type Owner = { id: string; name: string };
+/** 家族の親。通知先の候補 */
+type Parent = { name: string; email: string };
+
+const sameEmail = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 const dateTime = new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeStyle: "short" });
 
@@ -44,12 +49,29 @@ export default function ShopPage(props: Props) {
     <>
       <ChildTabs base="/shop" list={props.children} selected={owner.id} />
       {/* 子供を切り替えたら、編集中の値も作り直す */}
-      <Shop key={owner.id} mode="parent" initial={props.shop} owner={owner} />
+      <Shop
+        key={owner.id}
+        mode="parent"
+        initial={props.shop}
+        owner={owner}
+        parents={props.parents}
+      />
     </>
   );
 }
 
-function Shop({ mode, initial, owner }: { mode: Mode; initial: Loaded; owner?: Owner }) {
+function Shop({
+  mode,
+  initial,
+  owner,
+  parents = [],
+}: {
+  mode: Mode;
+  initial: Loaded;
+  owner?: Owner;
+  /** 通知先の候補にする家族の親（親が子供のショップを見るときだけ） */
+  parents?: Parent[];
+}) {
   const [items, setItems] = useState(initial.items);
   const [flowers, setFlowers] = useState(initial.flowers);
   const [history, setHistory] = useState(initial.purchases);
@@ -80,6 +102,7 @@ function Shop({ mode, initial, owner }: { mode: Mode; initial: Loaded; owner?: O
             enabled={initial.mailEnabled}
             initial={initial.notifyEmails}
             max={initial.limits.notifyEmails}
+            parents={parents}
             query={query}
           />
         </>
@@ -420,11 +443,14 @@ function NotifyEditor({
   enabled,
   initial,
   max,
+  parents,
   query,
 }: {
   enabled: boolean;
   initial: string[];
   max: number;
+  /** チェックで選べる家族の親。親以外の宛先（祖父母など）は下の欄から手で入れる */
+  parents: Parent[];
   /** 親が子供の通知先を変えるときの ?account=… */
   query: string;
 }) {
@@ -456,9 +482,13 @@ function NotifyEditor({
       ? undefined
       : !/^\S+@\S+\.\S+$/.test(trimmed)
         ? "メールアドレスの形にしてください"
-        : emails.some((e) => e.toLowerCase() === trimmed.toLowerCase())
+        : emails.some((e) => sameEmail(e, trimmed))
           ? "もう入っています"
           : undefined;
+  const isParent = (email: string) => parents.some((p) => sameEmail(p.email, email));
+  // 親の宛先はチェックの欄に出すので、カードには親以外の宛先だけを出す
+  const others = emails.filter((e) => !isParent(e));
+  const full = emails.length >= max;
 
   return (
     <section className="panel" aria-labelledby="notify-title">
@@ -466,7 +496,9 @@ function NotifyEditor({
         <h2 id="notify-title">購入の通知</h2>
         <p className="muted">
           {enabled
-            ? `購入したとき、ここの宛先にメールで知らせます。${max}件まで。`
+            ? parents.length > 0
+              ? `購入したとき、ここの宛先にメールで知らせます。家族の親を選ぶほか、親以外の宛先（祖父母など）も足せます。合わせて${max}件まで。`
+              : `購入したとき、ここの宛先にメールで知らせます。${max}件まで。`
             : "いまはメールを送れないため、購入の通知は出ません。購入の記録は、このページで確かめられます。"}
         </p>
       </div>
@@ -478,9 +510,38 @@ function NotifyEditor({
             open={message !== null}
             onDismiss={() => setMessage(null)}
           />
-          {emails.length > 0 && (
+          {parents.length > 0 && (
+            <fieldset className="notify-parents">
+              <legend>家族の親</legend>
+              {parents.map((parent) => {
+                const checked = emails.some((e) => sameEmail(e, parent.email));
+                return (
+                  <label key={parent.email} className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={busy || (!checked && full)}
+                      onChange={() =>
+                        save(
+                          checked
+                            ? emails.filter((e) => !sameEmail(e, parent.email))
+                            : [...emails, parent.email],
+                          checked ? "宛先を外しました" : "宛先を追加しました",
+                        )
+                      }
+                    />
+                    <span>
+                      {parent.name || "（名前なし）"}
+                      <span className="muted">（{parent.email}）</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+          )}
+          {others.length > 0 && (
             <ul className="cards">
-              {emails.map((email) => (
+              {others.map((email) => (
                 <li key={email}>
                   <Card
                     title={email}
@@ -510,12 +571,12 @@ function NotifyEditor({
             noValidate
             onSubmit={async (event) => {
               event.preventDefault();
-              if (busy || !trimmed || inputError || emails.length >= max) return;
+              if (busy || !trimmed || inputError || full) return;
               if (await save([...emails, trimmed], "宛先を追加しました")) setInput("");
             }}
           >
             <Input
-              label="宛先を追加"
+              label={parents.length > 0 ? "親以外の宛先を追加" : "宛先を追加"}
               type="email"
               autoComplete="email"
               placeholder="name@example.com"
@@ -532,7 +593,7 @@ function NotifyEditor({
                 variant="secondary"
                 size="sm"
                 loading={busy}
-                disabled={!trimmed || Boolean(inputError) || emails.length >= max}
+                disabled={!trimmed || Boolean(inputError) || full}
               >
                 <Mail size={16} strokeWidth={1.75} aria-hidden="true" />
                 追加

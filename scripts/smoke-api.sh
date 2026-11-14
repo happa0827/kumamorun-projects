@@ -20,6 +20,8 @@ expect() {
 api() { local m=$1 p=$2; shift 2; curl -s "${H[@]}" -H "Authorization: Bearer $TOKEN" -X "$m" "$B/api/app/v1$p" "$@"; }
 eapi() { local want=$1 what=$2 m=$3 p=$4; shift 4; expect "$want" "$what" "${H[@]}" -H "Authorization: Bearer $TOKEN" -X "$m" "$B/api/app/v1$p" "$@"; }
 check() { if jq -e "$2" <<<"$BODY" >/dev/null; then echo "ok      $1"; else echo "NG      $1: ${BODY:0:300}"; FAIL=$((FAIL+1)); fi; }
+# ショップのページ（BODY）の props にある通知先（"notifyEmails":[…]）
+notify_emails() { grep -oE '"notifyEmails":\[[^]]*\]' <<<"$BODY" | head -1; }
 # signup <クッキーの入れ物> <メールアドレス>  メールのコードで新しいアカウントを作り、ログインする（種類はまだない）
 signup() {
   local jar=$1 email=$2 otp=""
@@ -209,6 +211,14 @@ expect 200 "親が子供の品を決める" -b "$PJAR" "${H[@]}" -X PUT "$B/api/
 expect 403 "大人は他人の品を変えられない" -b "$JAR" "${H[@]}" -X PUT "$B/api/shop/items?account=$CHILD" -d '{"items":[]}'
 expect 403 "親は買えない" -b "$PJAR" "${H[@]}" -X POST "$B/api/shop/purchase" -d '{"itemId":"c","expectedPrice":2}'
 expect 200 "親が子供のショップを開く" -b "$PJAR" "$B/shop?child=$CHILD"
+if grep -qE "\"parents\":\[[^]]*\"email\":\"parent-$EMAIL\"" <<<"$BODY"; then echo "ok      家族の親が通知先の候補に出る"; else echo "NG      家族の親が通知先の候補に出ない"; FAIL=$((FAIL+1)); fi
+if grep -q "parent-$EMAIL" <<<"$(notify_emails)"; then echo "ok      作った親が通知先に入っている"; else echo "NG      作った親が通知先にない: $(notify_emails)"; FAIL=$((FAIL+1)); fi
+expect 200 "親が親以外の宛先も足す" -b "$PJAR" "${H[@]}" -X PUT "$B/api/shop/notify-emails?account=$CHILD" -d "{\"emails\":[\"parent-$EMAIL\",\"grandma@example.com\"]}"
+check "親と親以外の宛先" ".emails == [\"parent-$EMAIL\",\"grandma@example.com\"]"
+expect 200 "親を外して親以外だけにする" -b "$PJAR" "${H[@]}" -X PUT "$B/api/shop/notify-emails?account=$CHILD" -d '{"emails":["grandma@example.com"]}'
+check "親以外だけ" '.emails == ["grandma@example.com"]'
+# あとの購入通知の確認のために、親の宛先に戻す
+expect 200 "通知先を親に戻す" -b "$PJAR" "${H[@]}" -X PUT "$B/api/shop/notify-emails?account=$CHILD" -d "{\"emails\":[\"parent-$EMAIL\"]}"
 expect 200 "子供のログインリンク（1本目）" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
 OLDLCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
 expect 200 "子供のログインリンク（2本目）" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/children/$CHILD/sign-in-link"
@@ -343,7 +353,9 @@ check "段階 3、花 2" '.stage == 3 and .flowers == 2'
 NINVITE=$(curl -s -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"child"}' | jq -r .code)
 expect 200 "招待コードで子供になる" -b "$NJAR" "${H[@]}" -X POST "$B/api/account/kind" -d "{\"inviteCode\":\"$NINVITE\"}"
 expect 200 "親が子供のショップを開く" -b "$PJAR" "$B/shop?child=$NID"
-if grep -q 'own-choice@example.com' <<<"$BODY" && ! grep -q "parent-$EMAIL" <<<"$BODY"; then echo "ok      決めていた通知先が残る"; else echo "NG      通知先が上書きされた"; FAIL=$((FAIL+1)); fi
+# 親のアドレスは通知先の候補（parents）としてページに出るので、props の notifyEmails だけを見る
+got=$(notify_emails)
+if grep -q 'own-choice@example.com' <<<"$got" && ! grep -q "parent-$EMAIL" <<<"$got"; then echo "ok      決めていた通知先が残る"; else echo "NG      通知先が上書きされた: $got"; FAIL=$((FAIL+1)); fi
 expect 200 "子供になったあとの同期" -H "Authorization: Bearer $NTOKEN" "$B/api/app/v1/sync"
 check "花は 0、段階は残る" '.stage == 3 and .flowers == 0'
 expect 409 "子供になったら、同じ日にはもう進化できない（入る前の進化と同じ日）" "${H[@]}" -H "Authorization: Bearer $NTOKEN" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":3,"nextStage":4,"flowersToAdd":0}'
