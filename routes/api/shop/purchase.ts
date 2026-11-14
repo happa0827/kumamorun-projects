@@ -16,7 +16,7 @@ export const POST = defineHandler(async (c) => {
   if (!canPurchase(viewer.member)) return forbidden(c);
   const body = await parseBody(c, Body);
   if (!body.ok) return body.response;
-  const result = await purchase(viewer.id, body.data);
+  const result = await purchase(viewer.id, body.data, viewer.name);
   if (result.ok) {
     const { ok: _, ...out } = result;
     return out;

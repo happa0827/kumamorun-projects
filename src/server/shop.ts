@@ -174,6 +174,8 @@ export type PurchaseResult =
 export async function purchase(
   accountId: string,
   { itemId, expectedPrice }: { itemId: string; expectedPrice: number },
+  /** 買った人の名前。通知のメールに入れる */
+  buyerName: string,
 ): Promise<PurchaseResult> {
   const [config, [p]] = await Promise.all([
     readConfig(accountId),
@@ -223,7 +225,7 @@ export async function purchase(
 
   const { accountId: _, handedBy: __, ...rest } = record;
   const purchaseOut = { ...rest, handedByName: null };
-  const notified = await notifyPurchase(config.notifyEmails, purchaseOut);
+  const notified = await notifyPurchase(config.notifyEmails, { ...purchaseOut, buyerName });
   return { ok: true, flowers: updated[0]?.flowers ?? 0, purchase: purchaseOut, notified };
 }
 
@@ -236,13 +238,20 @@ const dateFormat = new Intl.DateTimeFormat("ja-JP", {
 /** 購入を通知先に知らせる。送れなくても購入は取り消さない。送れたら true。 */
 async function notifyPurchase(
   emails: string[],
-  { itemName, price, purchasedAt }: { itemName: string; price: number; purchasedAt: number },
+  {
+    itemName,
+    price,
+    purchasedAt,
+    buyerName,
+  }: { itemName: string; price: number; purchasedAt: number; buyerName: string },
 ): Promise<boolean> {
   if (!purchaseMailEnabled() || emails.length === 0) return false;
+  // 名前のないアカウントなら「〇〇が」を省く
+  const buyer = buyerName.trim() ? `${buyerName.trim()}が` : "";
   const mail = {
     to: emails,
     subject: `購入通知: ${itemName}`,
-    text: `${dateFormat.format(purchasedAt)}に${itemName}（花 ${price}）を購入しました。`,
+    text: `${dateFormat.format(purchasedAt)}に${buyer}${itemName}とくまーる${price}個を引き換えました。商品を渡し、サイトでチェックを入れてください。`,
   };
   try {
     if (gmailConfigured()) {
