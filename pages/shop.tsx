@@ -18,6 +18,7 @@ import type { Props } from "./shop.server";
 type Loaded = NonNullable<Extract<Props, { shop: unknown }>["shop"]>;
 type Item = Loaded["items"][number];
 type Purchase = Loaded["purchases"][number];
+type Handed = Pick<Purchase, "handedAt" | "handedByName">;
 type Message = { ok: boolean; text: string } | null;
 type Mode = "adult" | "child" | "parent";
 /** 親が子供のショップを見るとき、その子供 */
@@ -28,6 +29,7 @@ type Parent = { name: string; email: string };
 const sameEmail = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 const dateTime = new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeStyle: "short" });
+const monthDay = new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric" });
 
 export default function ShopPage(props: Props) {
   if (!("mode" in props)) return null; // ログインしていなければ loader が移動させる
@@ -90,7 +92,14 @@ function Shop({
         onFlowers={setFlowers}
         onPurchased={(purchase) => setHistory((current) => [purchase, ...current].slice(0, 20))}
       />
-      <History list={history} />
+      <History
+        mode={mode}
+        list={history}
+        query={query}
+        onChange={(id, handed) =>
+          setHistory((current) => current.map((p) => (p.id === id ? { ...p, ...handed } : p)))
+        }
+      />
       {mode !== "child" && (
         <>
           <ItemEditor
@@ -247,13 +256,74 @@ function Storefront({
   );
 }
 
-function History({ list }: { list: Purchase[] }) {
+function History({
+  mode,
+  list,
+  query,
+  onChange,
+}: {
+  mode: Mode;
+  list: Purchase[];
+  /** 親が子供の記録に印を付けるときの ?account=… */
+  query: string;
+  onChange: (id: string, handed: Handed) => void;
+}) {
+  // 渡したかの印を付けるのは、品を決める人（大人は自分、子供の品は親）。子供は見るだけ
+  const editable = mode !== "child";
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<Message>(null);
+
+  const toggle = async (p: Purchase, handed: boolean) => {
+    setBusy(p.id);
+    setMessage(null);
+    const previous = { handedAt: p.handedAt, handedByName: p.handedByName };
+    // 先に印を変え、失敗したら戻す。渡した人の名前はサーバーの返事で入れる
+    onChange(p.id, { handedAt: handed ? Date.now() : null, handedByName: null });
+    const response = await fetch(`/api/shop/purchases/${encodeURIComponent(p.id)}${query}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handed }),
+    }).catch(() => null);
+    setBusy(null);
+    if (response?.status === 401) {
+      location.reload();
+      return;
+    }
+    if (!response?.ok) {
+      onChange(p.id, previous);
+      setMessage({
+        ok: false,
+        text: `保存できませんでした${response ? `（${response.status}）` : ""}`,
+      });
+      return;
+    }
+    onChange(p.id, (await response.json()) as Handed);
+  };
+
+  // 誰が渡したか。親が複数いても、ほかの親が渡したとわかるようにする。大人は自分しかいないので日付だけ
+  const handedNote = (p: Purchase) => {
+    if (p.handedAt === null) return null;
+    const date = monthDay.format(p.handedAt);
+    return mode !== "adult" && p.handedByName ? `${p.handedByName}・${date}` : date;
+  };
+
   return (
     <section className="panel" aria-labelledby="history-title">
       <div className="panel-head">
         <h2 id="history-title">購入の記録</h2>
-        <p className="muted">新しい順に20件まで出します。</p>
+        <p className="muted">
+          新しい順に20件まで出します。
+          {editable
+            ? "品を本人に渡したら、「渡した」にチェックを入れてください。"
+            : "「渡した」は、親が品を渡したときに付けます。"}
+        </p>
       </div>
+      <Alert
+        tone="danger"
+        title={message?.text ?? ""}
+        open={message !== null}
+        onDismiss={() => setMessage(null)}
+      />
       {list.length === 0 ? (
         <EmptyState title="まだ購入していません" description="購入すると、ここに記録が出ます。" />
       ) : (
@@ -264,6 +334,7 @@ function History({ list }: { list: Purchase[] }) {
                 <th scope="col">日時</th>
                 <th scope="col">品</th>
                 <th scope="col">花</th>
+                <th scope="col">渡した</th>
               </tr>
             </thead>
             <tbody>
@@ -272,6 +343,21 @@ function History({ list }: { list: Purchase[] }) {
                   <td className="mono">{dateTime.format(p.purchasedAt)}</td>
                   <td>{p.itemName}</td>
                   <td>{p.price}</td>
+                  <td>
+                    {editable ? (
+                      <Checkbox
+                        aria-label={`${p.itemName}（${dateTime.format(p.purchasedAt)}）を渡した`}
+                        description={handedNote(p) ?? undefined}
+                        checked={p.handedAt !== null}
+                        disabled={busy === p.id}
+                        onCheckedChange={(next) => void toggle(p, next === true)}
+                      />
+                    ) : p.handedAt !== null ? (
+                      `渡した（${handedNote(p)}）`
+                    ) : (
+                      <span className="muted">まだ</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

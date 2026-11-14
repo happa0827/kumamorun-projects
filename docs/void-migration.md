@@ -128,12 +128,16 @@ CREATE TABLE rate_limits (
 );
 
 -- 購入の記録。品の名前と値段は購入時の写し。
+-- handed_at は品を本人に渡した時刻（まだなら NULL）。大人は自分で、子供の品は親が付ける。
+-- handed_by はチェックした人の user.id（親が複数いても、誰が渡したかわかる）。
 CREATE TABLE purchases (
   id           TEXT PRIMARY KEY,
   account_id   TEXT NOT NULL,
   item_name    TEXT NOT NULL,
   price        INTEGER NOT NULL CHECK (price >= 1),
-  purchased_at INTEGER NOT NULL
+  purchased_at INTEGER NOT NULL,
+  handed_at    INTEGER,
+  handed_by    TEXT
 );
 ```
 

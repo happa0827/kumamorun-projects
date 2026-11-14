@@ -36,6 +36,20 @@
       "when": 1794462907743,
       "tag": "20261112055507_easy_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794619284521,
+      "tag": "20261114012124_natural_shatterstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794619969857,
+      "tag": "20261114013249_puzzling_prism",
+      "breakpoints": true
     }
   ]
 }

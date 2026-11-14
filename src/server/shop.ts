@@ -2,7 +2,7 @@
 // 旧版は品と通知先をブラウザの localStorage に持ち、花を Firebase に上書きしていた。
 // ここでは品と通知先を D1 に持ち、花の減算と購入の記録を1つのトランザクションで書く。
 import { progress, purchases, shop } from "@schema";
-import { db, desc, eq, sql } from "void/db";
+import { and, db, desc, eq, sql } from "void/db";
 import { sendEmail } from "void/email";
 import { z } from "zod";
 import { gmailConfigured, sendGmail } from "./gmail";
@@ -117,6 +117,11 @@ function readRecentPurchases(accountId: string) {
       itemName: purchases.itemName,
       price: purchases.price,
       purchasedAt: purchases.purchasedAt,
+      handedAt: purchases.handedAt,
+      // 渡した人の名前。アカウントが消えていれば null
+      handedByName: sql<
+        string | null
+      >`(SELECT "name" FROM "user" WHERE "id" = ${purchases.handedBy})`,
     })
     .from(purchases)
     .where(eq(purchases.accountId, accountId))
@@ -124,11 +129,39 @@ function readRecentPurchases(accountId: string) {
     .limit(RECENT_PURCHASES);
 }
 
+export type Handed = { handedAt: number | null; handedByName: string | null };
+
+/**
+ * 購入した品を本人に渡したか、の印を付けるか外す。付けたら、時刻と付けた人（by）を残す。外したら両方 null。
+ * accountId の購入でなければ（ほかの人の記録の ID なら）、何も変えずに undefined。
+ */
+export async function setHanded(
+  accountId: string,
+  purchaseId: string,
+  handed: boolean,
+  by: { id: string; name: string },
+): Promise<Handed | undefined> {
+  const [row] = await db
+    .update(purchases)
+    .set(handed ? { handedAt: Date.now(), handedBy: by.id } : { handedAt: null, handedBy: null })
+    .where(and(eq(purchases.id, purchaseId), eq(purchases.accountId, accountId)))
+    .returning({ handedAt: purchases.handedAt });
+  if (!row) return undefined;
+  return { handedAt: row.handedAt, handedByName: handed ? by.name : null };
+}
+
 export type PurchaseResult =
   | {
       ok: true;
       flowers: number;
-      purchase: { id: string; itemName: string; price: number; purchasedAt: number };
+      purchase: {
+        id: string;
+        itemName: string;
+        price: number;
+        purchasedAt: number;
+        handedAt: number | null;
+        handedByName: string | null;
+      };
       notified: boolean;
     }
   | { ok: false; error: "not_found" | "price_changed" | "insufficient"; flowers: number };
@@ -162,6 +195,8 @@ export async function purchase(
     itemName: item.name,
     price: item.price,
     purchasedAt: Date.now(),
+    handedAt: null,
+    handedBy: null,
   };
   let updated: { flowers: number }[];
   try {
@@ -186,7 +221,8 @@ export async function purchase(
     return { ok: false, error: "insufficient", flowers: now?.flowers ?? 0 };
   }
 
-  const { accountId: _, ...purchaseOut } = record;
+  const { accountId: _, handedBy: __, ...rest } = record;
+  const purchaseOut = { ...rest, handedByName: null };
   const notified = await notifyPurchase(config.notifyEmails, purchaseOut);
   return { ok: true, flowers: updated[0]?.flowers ?? 0, purchase: purchaseOut, notified };
 }

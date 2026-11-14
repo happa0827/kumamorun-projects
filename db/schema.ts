@@ -73,7 +73,11 @@ export const shop = sqliteTable("shop", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-/** 購入の記録。品の名前と値段は購入したときの写しを持つ（あとで品を変えても記録は変わらない）。 */
+/**
+ * 購入の記録。品の名前と値段は購入したときの写しを持つ（あとで品を変えても記録は変わらない）。
+ * handed_at は品を本人に渡した時刻。まだ渡していなければ NULL。チェックするのは品を決める人（大人は自分、子供なら親）。
+ * handed_by はチェックした人の user.id。親が複数いても、誰が渡したかわかるようにする。
+ */
 export const purchases = sqliteTable(
   "purchases",
   {
@@ -82,6 +86,8 @@ export const purchases = sqliteTable(
     itemName: text("item_name").notNull(),
     price: integer("price").notNull(),
     purchasedAt: integer("purchased_at").notNull(),
+    handedAt: integer("handed_at"),
+    handedBy: text("handed_by"),
   },
   (t) => [
     index("purchases_account_time").on(t.accountId, t.purchasedAt),
