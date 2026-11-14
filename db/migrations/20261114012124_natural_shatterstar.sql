@@ -1,0 +1,1 @@
+ALTER TABLE `purchases` ADD `handed_at` integer;
