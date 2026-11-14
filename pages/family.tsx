@@ -3,7 +3,7 @@
 // 親が作った子供は、ログインリンクが漏れたときなどに、親がすべての端末からログアウトさせられる。
 import { useState } from "react";
 import { Link } from "@void/react";
-import { Copy, Link2, LogOut, Plus, UserPlus } from "lucide-react";
+import { Ban, Copy, Link2, LogOut, Plus, UserPlus } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
 import { Badge } from "@/components/arc/badge/badge";
 import { Button } from "@/components/arc/button/button";
@@ -210,7 +210,11 @@ function ChildCard({ child }: { child: Child }) {
               }
               title={`${child.name}を、すべての端末からログアウトさせますか？`}
               description="ログインリンクをほかの人に開かれたときなどに使います。サイトのログイン、アプリの端末、パスキー、まだ使われていないログインリンクがすべて使えなくなります。子供には、新しいログインリンクでログインし直してもらってください。"
-              confirmLabel="ログアウトさせる"
+              confirmLabel="長押しでログアウトさせる"
+              hold={{
+                confirmedLabel: "ログアウトさせました",
+                icon: <LogOut strokeWidth={1.75} />,
+              }}
               onConfirm={async () => {
                 setError(null);
                 setNotice(null);
@@ -289,7 +293,8 @@ function ChildDevices({
                   }
                   title={`${childName}の「${device.name}」を失効しますか？`}
                   description="この端末のアプリは、ログインし直すまで同期できなくなります。"
-                  confirmLabel="失効する"
+                  confirmLabel="長押しで失効"
+                  hold={{ confirmedLabel: "失効しました", icon: <Ban strokeWidth={1.75} /> }}
                   onConfirm={async () => {
                     const response = await fetch(`/api/devices/${encodeURIComponent(device.id)}`, {
                       method: "DELETE",
@@ -448,7 +453,8 @@ function Invites({ initial, myName }: { initial: Loaded["invites"]; myName: stri
                       }
                       title="この招待コードを取り消しますか？"
                       description="取り消したコードでは、家族に入れなくなります。"
-                      confirmLabel="取り消す"
+                      confirmLabel="長押しで取り消す"
+                      hold={{ confirmedLabel: "取り消しました", icon: <Ban strokeWidth={1.75} /> }}
                       onConfirm={() => revoke(p.id)}
                     />
                   }
