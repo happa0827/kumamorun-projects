@@ -1,4 +1,4 @@
-// すべてのページで使う共有データ。レイアウトのメニューの出し分けにだけ使う。
+// すべてのページで使う共有データ。レイアウトのメニューの出し分けと、ヘッダーの写真にだけ使う。
 // kind はアカウントの種類。まだ選んでいなければ null（/welcome で選ぶ）。
 // 読んだ種類と家族は member にも置き、loadViewer と requireViewer が読み直さずに使う（src/server/viewer.ts）。
 import { type CloudContext, defineMiddleware } from "void";
@@ -7,7 +7,8 @@ import { getMember, type Kind, type Member } from "../src/server/family";
 
 declare module "void" {
   interface CloudContextVariables {
-    shared: { signedIn: boolean; kind: Kind | null };
+    /** name と image はヘッダーの写真（なければ頭文字）に使う */
+    shared: { signedIn: boolean; kind: Kind | null; name: string; image: string | null };
     /** このリクエストの開始時に読んだ、ログイン中の人の種類と家族（画面には渡さない） */
     member: { accountId: string; member: Member | null };
   }
@@ -23,7 +24,12 @@ export default defineMiddleware(async (c, next) => {
   const user = getUser();
   // アプリ向け API（端末のトークン）では user がないので、DB は読まない
   const member = user ? await getMember(user.id) : null;
-  c.set("shared", { signedIn: user !== null, kind: member?.kind ?? null });
+  c.set("shared", {
+    signedIn: user !== null,
+    kind: member?.kind ?? null,
+    name: user?.name ?? "",
+    image: user?.image ?? null,
+  });
   if (user) c.set("member", { accountId: user.id, member });
   await next();
 });

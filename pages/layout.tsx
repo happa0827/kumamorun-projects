@@ -1,11 +1,12 @@
 import { Link, useShared } from "@void/react";
 import type { ReactNode } from "react";
+import { Avatar } from "@/components/arc/avatar/avatar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import "@/components/arc/foundation.css";
 import "./app.css";
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { signedIn, kind } = useShared();
+  const { signedIn, kind, name, image } = useShared();
   return (
     <div className="shell">
       <header className="site-header">
@@ -23,6 +24,11 @@ export default function Layout({ children }: { children: ReactNode }) {
                 設定
               </Link>
             </nav>
+          )}
+          {signedIn && kind && (
+            <Link href="/settings" className="header-avatar" aria-label="設定">
+              <Avatar name={name || "?"} src={image ?? undefined} size="sm" />
+            </Link>
           )}
           <ThemeToggle />
         </div>

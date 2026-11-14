@@ -155,6 +155,19 @@ export const rateLimits = sqliteTable("rate_limits", {
   resetAt: integer("reset_at").notNull(),
 });
 
+/**
+ * アカウントの写真。サイトだけが使い、アプリは読まない。アカウントにつき1行。
+ * 画面で正方形（AVATAR_SIZE）に縮めてから送るので小さい。R2 を使わずに D1 に置く。
+ * data は画像のバイト列の base64。形と大きさは src/server/avatar.ts が確かめる。
+ * 置いたら user.image を /api/avatars/<account_id>?v=<updated_at> にする（Google の写真の代わりに出る）。
+ */
+export const avatars = sqliteTable("avatars", {
+  accountId: text("account_id").primaryKey(),
+  contentType: text("content_type").notNull(),
+  data: text("data").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 /** ライブ状況。アカウントにつき1行。updated_at はサーバーが入れる。 */
 export const liveStatus = sqliteTable("live_status", {
   accountId: text("account_id").primaryKey(),

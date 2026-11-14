@@ -50,6 +50,13 @@
       "when": 1794619969857,
       "tag": "20261114013249_puzzling_prism",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794622916678,
+      "tag": "20261114022156_yellow_white_queen",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,14 @@ import { setNotifyEmailsIfEmpty } from "./shop";
 
 export type Kind = "adult" | "parent" | "child";
 export type Member = { kind: Kind; familyId: string | null };
-export type FamilyPerson = { id: string; name: string; email: string | null; kind: Kind };
+export type FamilyPerson = {
+  id: string;
+  name: string;
+  email: string | null;
+  /** user.image（写真の URL。なければ null） */
+  image: string | null;
+  kind: Kind;
+};
 
 /** 招待コードの有効時間 */
 export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -48,8 +55,14 @@ export async function getMember(accountId: string): Promise<Member | null> {
 
 /** 家族の全員。親が先、同じ種類は加わった順。 */
 export async function listFamily(familyId: string): Promise<FamilyPerson[]> {
-  const rows = await db.all<{ id: string; name: string; email: string; kind: Kind }>(sql`
-    SELECT m.account_id AS id, u.name AS name, u.email AS email, m.kind AS kind
+  const rows = await db.all<{
+    id: string;
+    name: string;
+    email: string;
+    image: string | null;
+    kind: Kind;
+  }>(sql`
+    SELECT m.account_id AS id, u.name AS name, u.email AS email, u.image AS image, m.kind AS kind
     FROM members m JOIN "user" u ON u.id = m.account_id
     WHERE m.family_id = ${familyId}
     ORDER BY CASE m.kind WHEN 'parent' THEN 0 ELSE 1 END, m.created_at`);
