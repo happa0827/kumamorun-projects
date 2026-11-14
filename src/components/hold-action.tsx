@@ -2,7 +2,10 @@
 // そうでなければ ConfirmDialog の hold で、ダイアログの中で使う。
 // Arc の HoldToConfirm に、非同期の処理と、失敗したときの戻しを足す。
 import { useState } from "react";
-import { HoldToConfirm, type HoldToConfirmProps } from "@/components/arc/hold-to-confirm/hold-to-confirm";
+import {
+  HoldToConfirm,
+  type HoldToConfirmProps,
+} from "@/components/arc/hold-to-confirm/hold-to-confirm";
 
 export function HoldAction({
   onConfirm,
