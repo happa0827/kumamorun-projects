@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Link } from "@void/react";
 import { Ban, Copy, Link2, LogOut, Plus, UserPlus } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
+import { Avatar } from "@/components/arc/avatar/avatar";
 import { Badge } from "@/components/arc/badge/badge";
 import { Button } from "@/components/arc/button/button";
 import { Card } from "@/components/arc/card/card";
@@ -100,6 +101,7 @@ function Children({ initial }: { initial: Child[] }) {
             {
               ...child,
               email: null,
+              image: null,
               createdByParent: true,
               flowers: 0,
               appRunning: false,
@@ -155,6 +157,7 @@ function ChildCard({ child }: { child: Child }) {
     <Card
       title={child.name || "（名前なし）"}
       description={`花 ${child.flowers}${child.email ? `・${child.email}` : ""}`}
+      avatar={<Avatar name={child.name || "?"} src={child.image ?? undefined} size="sm" />}
       action={
         child.appRunning ? (
           <Badge tone={child.keeping ? "success" : "danger"} size="sm" dot>
@@ -486,6 +489,9 @@ function Parents({ list, me }: { list: Loaded["parents"]; me: string }) {
             <Card
               title={`${parent.name || "（名前なし）"}${parent.id === me ? "（自分）" : ""}`}
               description={parent.email ?? undefined}
+              avatar={
+                <Avatar name={parent.name || "?"} src={parent.image ?? undefined} size="sm" />
+              }
             />
           </li>
         ))}

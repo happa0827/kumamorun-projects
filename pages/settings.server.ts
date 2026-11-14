@@ -27,6 +27,7 @@ export const loader = defineHandler(async (c) => {
       // 親が作った子供は仮のメールアドレスなので出さない（null）
       email: visibleEmail(viewer.email),
       name: viewer.name,
+      image: viewer.image,
       kind: viewer.member.kind,
       kindLabel: KIND_LABEL[viewer.member.kind],
     },

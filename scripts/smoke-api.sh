@@ -252,6 +252,27 @@ check "花 4、親に通知" '.flowers == 4 and .notified == true'
 if curl -s "${INBOX[@]}" | grep -q "parent-$EMAIL"; then echo "ok      親の宛先に購入通知が届いた"; else echo "NG      親の宛先に購入通知が届かない"; FAIL=$((FAIL+1)); fi
 expect 200 "子供がアプリのコードを発行" -b "$CJAR" "${H[@]}" -X POST "$B/api/login-code"
 expect 403 "子供は招待コードを作れない" -b "$CJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"child"}'
+echo "-- 写真（見られるのは自分と家族だけ）"
+PNG=$(mktemp); BIG=$(mktemp)
+printf '\x89PNG\r\n\x1a\n0000IHDR' >"$PNG"
+head -c 400000 /dev/zero >"$BIG"
+IMG=(-H "Origin: $B" -H 'Content-Type: image/png')
+expect 200 "子供が写真を置く" -b "$CJAR" "${IMG[@]}" -X PUT "$B/api/account/avatar" --data-binary "@$PNG"
+AVATAR=$(jq -r .image <<<"$BODY")
+check "自分の写真の URL" ".image | startswith(\"/api/avatars/$CHILD?v=\")"
+expect 200 "セッションの user.image も変わる" -b "$CJAR" "$B/api/auth/get-session"
+check "user.image" ".user.image == \"$AVATAR\""
+expect 200 "子供が自分の写真を読む" -b "$CJAR" "$B$AVATAR"
+expect 200 "親が子供の写真を読む" -b "$PJAR" "$B$AVATAR"
+expect 404 "大人は他人の写真を読めない" -b "$JAR" "$B$AVATAR"
+expect 401 "ログインしていなければ読めない" "$B$AVATAR"
+expect 415 "画像でないものは置けない" -b "$CJAR" "${IMG[@]}" -X PUT "$B/api/account/avatar" --data-binary '<svg onload="alert(1)"/>'
+expect 413 "大きすぎる写真は置けない" -b "$CJAR" "${IMG[@]}" -X PUT "$B/api/account/avatar" --data-binary "@$BIG"
+expect 204 "子供が写真を消す" -b "$CJAR" "${H[@]}" -X DELETE "$B/api/account/avatar"
+expect 404 "消した写真は読めない" -b "$CJAR" "$B$AVATAR"
+expect 200 "消すと user.image も消える" -b "$CJAR" "$B/api/auth/get-session"
+check "user.image なし" '.user.image == null'
+rm -f "$PNG" "$BIG"
 echo "-- 招待コード"
 expect 200 "子供の招待コード" -b "$PJAR" "${H[@]}" -X POST "$B/api/family/invites" -d '{"kind":"child"}'
 INVITE=$(jq -r .code <<<"$BODY")

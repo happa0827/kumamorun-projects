@@ -5,7 +5,14 @@ import { HTTPException } from "hono/http-exception";
 import { getMember, type Member } from "./family";
 import { cachedMember } from "../../middleware/01.shared";
 
-export type Viewer = { id: string; email: string; name: string; member: Member };
+export type Viewer = {
+  id: string;
+  email: string;
+  name: string;
+  /** user.image（自分で置いた写真か、Google の写真の URL） */
+  image: string | null;
+  member: Member;
+};
 
 /** middleware（01.shared.ts）がこのリクエストで読んだ種類。読んでいなければ、ここで読む。 */
 async function memberOf(c: CloudContext, accountId: string): Promise<Member | null> {
@@ -25,7 +32,7 @@ export async function loadViewer(c: CloudContext): Promise<Viewer | Response> {
   if (!user) return c.redirect(`/?next=${next}`);
   const member = await memberOf(c, user.id);
   if (!member) return c.redirect(`/welcome?next=${next}`);
-  return { id: user.id, email: user.email, name: user.name, member };
+  return { id: user.id, email: user.email, name: user.name, image: user.image ?? null, member };
 }
 
 /** API 用。ログインしていなければ 401、種類を選んでいなければ 403（kind_required）。 */
@@ -36,7 +43,7 @@ export async function requireViewer(c: CloudContext): Promise<Viewer> {
     throw new HTTPException(403, {
       res: Response.json({ error: "kind_required" }, { status: 403 }),
     });
-  return { id: user.id, email: user.email, name: user.name, member };
+  return { id: user.id, email: user.email, name: user.name, image: user.image ?? null, member };
 }
 
 /** API 用。親でなければ 403（parent_only）。 */

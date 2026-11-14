@@ -46,11 +46,12 @@ export const loader = defineHandler(async (c) => {
     invites,
     parents: people
       .filter((p) => p.kind === "parent")
-      .map((p) => ({ id: p.id, name: p.name, email: p.email })),
+      .map((p) => ({ id: p.id, name: p.name, email: p.email, image: p.image })),
     children: children.map((p, i) => ({
       id: p.id,
       name: p.name,
       email: p.email,
+      image: p.image,
       // 親が作った子供（Google なし。メールアドレスを出さない人）だけ、親がログインさせられる
       createdByParent: p.email === null,
       flowers: flowers.get(p.id) ?? 0,

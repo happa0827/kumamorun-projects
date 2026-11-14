@@ -139,6 +139,15 @@ CREATE TABLE purchases (
   handed_at    INTEGER,
   handed_by    TEXT
 );
+
+-- アカウントの写真（サイトだけが使う）。画面で 256px の正方形に縮めてから送る。data は base64。
+-- 置くと user.image が /api/avatars/<account_id>?v=<updated_at> になる。消すと user.image は NULL。
+CREATE TABLE avatars (
+  account_id   TEXT PRIMARY KEY,
+  content_type TEXT NOT NULL,            -- image/webp | image/jpeg | image/png
+  data         TEXT NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
 ```
 
 ### ショップと花

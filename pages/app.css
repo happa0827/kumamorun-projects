@@ -58,6 +58,9 @@ body {
 
 .header-actions {
   display: flex;
+  /* 親はメニューが4つあり、写真とテーマの切り替えを足すとスマホの幅を超えるので折り返す */
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 0.75rem;
 }
@@ -209,6 +212,24 @@ body {
   display: grid;
   gap: 0.75rem;
   max-width: 24rem;
+}
+
+/* 設定の写真。写真の右にボタン。Alert は下の行いっぱいに出す */
+.avatar-form {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.avatar-form > :last-child {
+  grid-column: 1 / -1;
+}
+
+/* ヘッダーの写真（設定へのリンク） */
+.header-avatar {
+  display: inline-flex;
+  border-radius: var(--radius-pill);
 }
 
 .full {
