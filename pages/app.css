@@ -353,6 +353,27 @@ tbody tr {
 }
 
 /* ショップ */
+.notify-parents {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0.5rem 1rem 0.5rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+
+.notify-parents legend {
+  margin-left: 0.5rem;
+  padding: 0 0.25rem;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+/* 長いメールアドレスを折り返す */
+.notify-parents > * {
+  overflow-wrap: anywhere;
+}
+
 .shop-head {
   display: flex;
   flex-wrap: wrap;
