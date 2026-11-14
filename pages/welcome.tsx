@@ -7,6 +7,7 @@ import { Button } from "@/components/arc/button/button";
 import { Card } from "@/components/arc/card/card";
 import { Input } from "@/components/arc/input/input";
 import { ConfirmDialog } from "../src/components/confirm-dialog";
+import { HoldAction } from "../src/components/hold-action";
 import type { Props } from "./welcome.server";
 
 type Choice = { kind: "adult" | "parent" } | { inviteCode: string };
@@ -113,8 +114,9 @@ function Welcome({ next, name }: { next: string; name: string }) {
                   }
                   title="大人のアカウントにしますか？"
                   description="あとから親や子供には変えられません。"
-                  confirmLabel="大人にする"
+                  confirmLabel="長押しで大人にする"
                   confirmVariant="primary"
+                  hold={{ confirmedLabel: "大人にしました", icon: <User strokeWidth={1.75} /> }}
                   onConfirm={() => choose({ kind: "adult" })}
                 />
               }
@@ -134,8 +136,9 @@ function Welcome({ next, name }: { next: string; name: string }) {
                   }
                   title="親のアカウントにして、家族を作りますか？"
                   description="もう家族があるなら、作らずに、その家族の親から招待コードをもらってください。"
-                  confirmLabel="家族を作る"
+                  confirmLabel="長押しで家族を作る"
                   confirmVariant="primary"
+                  hold={{ confirmedLabel: "家族を作りました", icon: <Users strokeWidth={1.75} /> }}
                   onConfirm={() => choose({ kind: "parent" })}
                 />
               }
@@ -203,17 +206,23 @@ function Welcome({ next, name }: { next: string; name: string }) {
               あとから変えられません。知らない人からのコードなら、入らないでください。
             </Alert>
             <div className="row">
-              <Button
-                type="button"
-                loading={joining}
-                onClick={async () => {
+              {/* 花が 0 になるなど、結果は上に出ているので、ダイアログを挟まずに押し続けて決める */}
+              <HoldAction
+                label={preview.kind === "child" ? "長押しで子供として入る" : "長押しで親として入る"}
+                confirmedLabel="家族に入りました"
+                icon={
+                  preview.kind === "child" ? (
+                    <Baby strokeWidth={1.75} />
+                  ) : (
+                    <Users strokeWidth={1.75} />
+                  )
+                }
+                onConfirm={async () => {
                   setJoining(true);
                   await choose({ inviteCode: normalized });
                   setJoining(false);
                 }}
-              >
-                {preview.kind === "child" ? "子供として入る" : "親として入る"}
-              </Button>
+              />
               <Button
                 type="button"
                 variant="ghost"

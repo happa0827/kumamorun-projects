@@ -1,6 +1,6 @@
 // 設定: アカウント、端末の一覧と失効、パスキー、ログアウト。
 import { useEffect, useState } from "react";
-import { KeyRound, LogOut, Monitor } from "lucide-react";
+import { Ban, KeyRound, LogOut, Monitor } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
 import { Button } from "@/components/arc/button/button";
 import { Card } from "@/components/arc/card/card";
@@ -9,6 +9,7 @@ import { Input } from "@/components/arc/input/input";
 import { Skeleton } from "@/components/arc/skeleton/skeleton";
 import { authClient } from "../src/auth-client";
 import { ConfirmDialog } from "../src/components/confirm-dialog";
+import { HoldAction } from "../src/components/hold-action";
 import { OpenAppButton } from "../src/components/open-app";
 import type { Props } from "./settings.server";
 
@@ -34,17 +35,17 @@ function Settings({ user, devices }: Loaded) {
         <NameForm initial={user.name} />
         <div className="row">
           {user.kind !== "parent" && <OpenAppButton />}
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={async () => {
-              await authClient.signOut();
+          <HoldAction
+            label="長押しでログアウト"
+            confirmedLabel="ログアウトしました"
+            tone="neutral"
+            icon={<LogOut strokeWidth={1.75} />}
+            onConfirm={async () => {
+              const { error } = await authClient.signOut();
+              if (error) return false;
               location.href = "/";
             }}
-          >
-            <LogOut size={16} strokeWidth={1.75} aria-hidden="true" />
-            ログアウト
-          </Button>
+          />
         </div>
       </section>
       {/* 親は端末を持たないが、親を選ぶ前からの端末が残っていれば出す */}
@@ -164,7 +165,8 @@ function Devices({ initial, parent }: { initial: Loaded["devices"]; parent: bool
                     }
                     title={`「${device.name}」を失効しますか？`}
                     description="この端末のアプリは、ログインし直すまで同期できなくなります。"
-                    confirmLabel="失効する"
+                    confirmLabel="長押しで失効"
+                    hold={{ confirmedLabel: "失効しました", icon: <Ban strokeWidth={1.75} /> }}
                     onConfirm={async () => {
                       const response = await fetch(
                         `/api/devices/${encodeURIComponent(device.id)}`,
@@ -237,7 +239,8 @@ function Passkeys() {
                       }
                       title="このパスキーを削除しますか？"
                       description="削除したパスキーでは、ログインできなくなります。"
-                      confirmLabel="削除する"
+                      confirmLabel="長押しで削除"
+                      hold={{ confirmedLabel: "削除しました" }}
                       onConfirm={async () => {
                         const { error } = await authClient.passkey.deletePasskey({
                           id: passkey.id,

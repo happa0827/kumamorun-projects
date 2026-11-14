@@ -197,8 +197,12 @@ function Storefront({
                       }
                       title={`${item.name}を購入しますか？`}
                       description={`花を${item.price}つ使います（残り ${flowers - item.price}）。取り消せません。`}
-                      confirmLabel="購入する"
+                      confirmLabel="長押しで購入"
                       confirmVariant="primary"
+                      hold={{
+                        confirmedLabel: "購入しました",
+                        icon: <ShoppingBag strokeWidth={1.75} />,
+                      }}
                       onConfirm={() => buy(item)}
                     />
                   )
