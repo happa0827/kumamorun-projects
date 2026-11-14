@@ -7,6 +7,7 @@ import { Mail, Plus, RotateCcw, Save, ShoppingBag, Trash2 } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
 import { Button } from "@/components/arc/button/button";
 import { Card } from "@/components/arc/card/card";
+import { Checkbox } from "@/components/arc/checkbox/checkbox";
 import { EmptyState } from "@/components/arc/empty-state/empty-state";
 import { Input } from "@/components/arc/input/input";
 import { Link } from "@void/react";
@@ -516,25 +517,21 @@ function NotifyEditor({
               {parents.map((parent) => {
                 const checked = emails.some((e) => sameEmail(e, parent.email));
                 return (
-                  <label key={parent.email} className="check-row">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={busy || (!checked && full)}
-                      onChange={() =>
-                        save(
-                          checked
-                            ? emails.filter((e) => !sameEmail(e, parent.email))
-                            : [...emails, parent.email],
-                          checked ? "宛先を外しました" : "宛先を追加しました",
-                        )
-                      }
-                    />
-                    <span>
-                      {parent.name || "（名前なし）"}
-                      <span className="muted">（{parent.email}）</span>
-                    </span>
-                  </label>
+                  <Checkbox
+                    key={parent.email}
+                    label={parent.name || "（名前なし）"}
+                    description={parent.email}
+                    checked={checked}
+                    disabled={busy || (!checked && full)}
+                    onCheckedChange={() =>
+                      save(
+                        checked
+                          ? emails.filter((e) => !sameEmail(e, parent.email))
+                          : [...emails, parent.email],
+                        checked ? "宛先を外しました" : "宛先を追加しました",
+                      )
+                    }
+                  />
                 );
               })}
             </fieldset>
