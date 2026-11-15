@@ -1,6 +1,7 @@
 import { Link } from "@void/react";
 import { Card } from "@/components/arc/card/card";
 import { EmptyState } from "@/components/arc/empty-state/empty-state";
+import { DownloadAppButton } from "../src/components/download-app";
 import { OpenAppButton } from "../src/components/open-app";
 import type { Props } from "./link.server";
 
@@ -17,6 +18,10 @@ export default function LinkPage(props: Props) {
         </div>
         <OpenAppButton primary />
         <p className="muted">別のアカウントを使うときは、設定からログアウトしてください。</p>
+        <p className="muted">まだアプリが入っていなければ、先にインストールしてください。</p>
+        <div className="row">
+          <DownloadAppButton />
+        </div>
       </section>
     );
   }
@@ -32,6 +37,12 @@ export default function LinkPage(props: Props) {
         <p className="lead">
           親は自分ではアプリを使いません。このパソコンを使う子供を選んで、アプリにログインさせてください。
         </p>
+      </div>
+      <p className="muted">
+        このパソコンにまだアプリが入っていなければ、先にインストールしてください。
+      </p>
+      <div className="row">
+        <DownloadAppButton />
       </div>
       {props.selfSignIn.length > 0 && (
         <p className="muted">
