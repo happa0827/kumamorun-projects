@@ -25,8 +25,8 @@ export const MAX_MESSAGE = 2000;
 export const ContactBody = z.object({
   category: z.enum(CATEGORIES),
   message: z.string().trim().min(1).max(MAX_MESSAGE),
-  // 空なら返事をしない
-  email: z.union([z.literal(""), z.email().max(254)]).default(""),
+  // 返事の宛先。必ず入れてもらう
+  email: z.email().max(254),
   /** おとり欄。人は空のまま送る */
   website: z.string().max(500).default(""),
   turnstileToken: z.string().min(1).max(2048),
@@ -66,7 +66,7 @@ export async function saveContact(input: ContactInput): Promise<{ id: string; no
     id: crypto.randomUUID(),
     category: input.category,
     message: input.message,
-    email: input.email || null,
+    email: input.email,
     accountId: input.account?.id ?? null,
     userAgent: input.userAgent?.slice(0, 500) ?? null,
     createdAt: Date.now(),
@@ -103,14 +103,14 @@ async function notify(id: string, input: ContactInput, createdAt: number): Promi
     text: [
       `種類: ${label}`,
       `日時: ${dateFormat.format(createdAt)}`,
-      `返事の宛先: ${input.email || "なし（返事は要らない）"}`,
+      `返事の宛先: ${input.email}`,
       `アカウント: ${account}`,
       `ブラウザ: ${input.userAgent ?? "不明"}`,
       `ID: ${id}`,
       "",
       input.message,
     ].join("\n"),
-    replyTo: input.email || undefined,
+    replyTo: input.email,
   };
   try {
     const sender = gmailSender();

@@ -3,6 +3,7 @@ import { Send } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
 import { Button } from "@/components/arc/button/button";
 import { Input } from "@/components/arc/input/input";
+import { MorphSelect } from "@/components/arc/morph-select/morph-select";
 import { Turnstile, type TurnstileHandle } from "../src/components/turnstile";
 import type { Props } from "./contact.server";
 
@@ -27,15 +28,14 @@ export default function ContactPage({
   const [sent, setSent] = useState(false);
   const turnstile = useRef<TurnstileHandle>(null);
   const messageId = useId();
-  const categoryId = useId();
 
   const trimmedEmail = email.trim();
+  const emailValid = /^\S+@\S+\.\S+$/.test(trimmedEmail);
+  // 空のうちは誤りを出さない（送るボタンが押せないことで伝える）
   const emailError =
-    trimmedEmail !== "" && !/^\S+@\S+\.\S+$/.test(trimmedEmail)
-      ? "メールアドレスの形にしてください"
-      : undefined;
+    trimmedEmail !== "" && !emailValid ? "メールアドレスの形にしてください" : undefined;
   const tooLong = message.length > maxMessage;
-  const canSend = message.trim() !== "" && !tooLong && !emailError && token !== null && !busy;
+  const canSend = message.trim() !== "" && !tooLong && emailValid && token !== null && !busy;
 
   if (!siteKey) {
     return (
@@ -57,10 +57,7 @@ export default function ContactPage({
         <div className="panel-head">
           <h1 id="contact-title">送りました</h1>
           <p className="lead">
-            ありがとうございます。
-            {trimmedEmail
-              ? `返事が必要なときは ${trimmedEmail} にお送りします。`
-              : "いただいた内容は、すべて目を通します。"}
+            ありがとうございます。返事が必要なときは {trimmedEmail} にお送りします。
           </p>
         </div>
         <div className="row">
@@ -139,23 +136,12 @@ export default function ContactPage({
           void submit();
         }}
       >
-        <div className="field">
-          <label className="field-label" htmlFor={categoryId}>
-            種類
-          </label>
-          <select
-            id={categoryId}
-            className="field-control"
-            value={category}
-            onChange={(event) => setCategory(event.target.value as Category)}
-          >
-            {categories.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <MorphSelect
+          label="種類"
+          items={categories}
+          value={category}
+          onValueChange={(value) => setCategory(value as Category)}
+        />
 
         <div className="field">
           <label className="field-label" htmlFor={messageId}>
@@ -185,9 +171,10 @@ export default function ContactPage({
         </div>
 
         <Input
-          label="返事の宛先（任意）"
-          description="返事が要らなければ空のままで構いません。"
+          label="返事の宛先"
+          description="返事はこのメールアドレスにお送りします。"
           type="email"
+          required
           autoComplete="email"
           placeholder="name@example.com"
           value={email}

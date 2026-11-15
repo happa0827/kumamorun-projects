@@ -171,7 +171,8 @@ export const avatars = sqliteTable("avatars", {
 /**
  * お問い合わせとフィードバック（/contact）。ログインしていなくても送れる。サイトだけが使い、アプリは読まない。
  * account_id は送ったときにログインしていた人の user.id（していなければ NULL）。
- * email は返事の宛先として本人が入れたもの（なくてもよい）。
+ * email は返事の宛先として本人が入れたもの。いまは必ず入る（/api/contact が確かめる）。
+ * 列が NULL を許すのは、任意だったころの行のため（NOT NULL にするにはテーブルを作り直すことになる）。
  * notified_at は運営者へ通知のメールを送れた時刻。送れなければ NULL のまま残る（内容は D1 で確かめる）。
  */
 export const contactMessages = sqliteTable(
