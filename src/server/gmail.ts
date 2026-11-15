@@ -71,10 +71,22 @@ function encodeBody(s: string): string {
   return (base64(utf8(s)).match(/.{1,76}/g) ?? []).join("\r\n");
 }
 
-function buildMessage(from: string, to: string[], subject: string, text: string): string {
+/** ヘッダーに入れるアドレスに、改行（ヘッダーの差し込み）や区切りの文字がないか */
+const safeAddress = (s: string) => /^[^\s<>,;"\\]+@[^\s<>,;"\\]+$/.test(s);
+
+function buildMessage(
+  from: string,
+  to: string[],
+  subject: string,
+  text: string,
+  replyTo?: string,
+): string {
+  for (const address of [...to, ...(replyTo ? [replyTo] : [])])
+    if (!safeAddress(address)) throw new Error("メールアドレスの形ではありません");
   return [
     `From: ${encodeWord(SENDER_NAME)} <${from}>`,
     `To: ${to.join(", ")}`,
+    ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
     `Subject: ${encodeWord(subject)}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
@@ -87,15 +99,22 @@ function buildMessage(from: string, to: string[], subject: string, text: string)
 const base64url = (s: string) =>
   base64(utf8(s)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
-/** Gmail でテキストのメールを送る。設定がそろっていなければ投げる。 */
+/** 送信元のアドレス（運営者の Gmail）。設定がそろっていなければ null */
+export function gmailSender(): string | null {
+  return config()?.sender ?? null;
+}
+
+/** Gmail でテキストのメールを送る。設定がそろっていなければ投げる。replyTo は返信したときの宛先。 */
 export async function sendGmail({
   to,
   subject,
   text,
+  replyTo,
 }: {
   to: string[];
   subject: string;
   text: string;
+  replyTo?: string;
 }): Promise<void> {
   const c = config();
   if (!c) throw new Error("Gmail の設定がそろっていません");
@@ -103,7 +122,9 @@ export async function sendGmail({
   const res = await fetch(SEND_URL, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ raw: base64url(buildMessage(c.sender, to, subject, text)) }),
+    body: JSON.stringify({
+      raw: base64url(buildMessage(c.sender, to, subject, text, replyTo)),
+    }),
   });
   if (!res.ok) {
     if (res.status === 401) cachedToken = null;

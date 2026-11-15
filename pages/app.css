@@ -118,12 +118,14 @@ body {
   padding-left: 1.25rem;
 }
 
-/* プライバシーポリシーへのボタン。画面の右下に固定する（本文の下の余白 4rem の上に乗る） */
+/* お問い合わせとプライバシーポリシーへのボタン。画面の右下に固定する（本文の下の余白 4rem の上に乗る） */
 .site-footer {
   position: fixed;
   right: max(1rem, env(safe-area-inset-right));
   bottom: max(1rem, env(safe-area-inset-bottom));
   z-index: 10;
+  display: flex;
+  gap: 0.5rem;
 }
 
 .site-footer a {
@@ -446,6 +448,81 @@ tbody tr {
 
 .item-row > button {
   margin-top: 1.6rem;
+}
+
+/* お問い合わせ。選択と複数行の欄は Arc の Input（input.module.css）と見た目をそろえる */
+.contact-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.field {
+  display: grid;
+  min-width: 0;
+}
+
+.field-label {
+  margin-bottom: var(--space-2);
+  color: var(--foreground);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: var(--leading-body);
+}
+
+.field-control {
+  width: 100%;
+  min-height: var(--control-height-md);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  letter-spacing: var(--tracking-body);
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+textarea.field-control {
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+}
+
+.field-control:focus-visible {
+  border-color: var(--foreground);
+}
+
+.field-control[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field-hint {
+  padding-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  text-align: right;
+}
+
+.field-hint-error {
+  color: var(--danger);
+}
+
+/* おとり欄。display: none にすると読み飛ばすボットがいるので、画面の外に出す */
+.honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* Turnstile のウィジェット（幅 300px）。狭い画面でははみ出さないよう縮める */
+.turnstile {
+  min-height: 65px;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 @media (max-width: 30rem) {

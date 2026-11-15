@@ -1,5 +1,7 @@
 // プライバシーポリシー。Google の OAuth 同意画面に載せるために置く。
 // 扱う情報は db/schema.ts と Void の認証のテーブルに合わせる。保存するものを変えたら、ここも直す。
+import { Link } from "@void/react";
+
 export default function PrivacyPage() {
   return (
     <article className="panel policy">
@@ -23,11 +25,14 @@ export default function PrivacyPage() {
           アプリの記録：スタート制限の設定、1日ごとのプレイ回数と失敗回数、進化段階、花の数、アプリの動作状況。
         </li>
         <li>ショップの情報：品の名前と値段、購入の記録、購入を知らせる通知先のメールアドレス。</li>
+        <li>
+          お問い合わせの情報：お問い合わせの種類と内容、返事の宛先として入れたメールアドレス、送った日時、ブラウザの種類、ログインしていればそのアカウント。
+        </li>
       </ul>
 
       <h3>使い方</h3>
       <p>
-        集めた情報は、ログイン、アプリとサイトの同期、状況やショップの表示、購入の通知メールの送信のためだけに使います。広告や分析には使わず、販売もしません。
+        集めた情報は、ログイン、アプリとサイトの同期、状況やショップの表示、購入の通知メールの送信、お問い合わせへの対応のためだけに使います。広告や分析には使わず、販売もしません。
       </p>
 
       <h3>外部のサービス</h3>
@@ -37,6 +42,11 @@ export default function PrivacyPage() {
           Google：ログインに Google の OAuth を使います。購入の通知メールは、運営者の Gmail
           アカウントから Gmail API（送信の権限だけ）で送ります。このサービスがあなたの Gmail
           を読んだり、あなたのアカウントからメールを送ったりすることはありません。
+        </li>
+        <li>
+          Cloudflare
+          Turnstile：お問い合わせのフォームで、ボットによる送信を防ぐために使います。確認のため、ブラウザの情報と接続元の
+          IP アドレスが Cloudflare に送られます。
         </li>
       </ul>
       <p>法令で求められたときを除き、上のほかの第三者に情報を渡しません。</p>
@@ -54,12 +64,13 @@ export default function PrivacyPage() {
 
       <h3>連絡先</h3>
       <p>
+        <Link href="/contact">お問い合わせのフォーム</Link>、または{" "}
         <a href="https://github.com/happa0827">https://github.com/happa0827</a>
       </p>
 
       <h3>変更</h3>
       <p>このポリシーを変えるときは、このページを更新します。</p>
-      <p className="muted">制定日：2026年11月12日</p>
+      <p className="muted">制定日：2026年11月12日（改定日：2026年11月15日）</p>
     </article>
   );
 }
