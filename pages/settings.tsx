@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/arc/skeleton/skeleton";
 import { authClient } from "../src/auth-client";
 import { ConfirmDialog } from "../src/components/confirm-dialog";
 import { HoldAction } from "../src/components/hold-action";
+import { DownloadAppButton } from "../src/components/download-app";
 import { OpenAppButton } from "../src/components/open-app";
 import type { Props } from "./settings.server";
 
@@ -38,6 +39,7 @@ function Settings({ user, devices }: Loaded) {
         <NameForm initial={user.name} />
         <div className="row">
           {user.kind !== "parent" && <OpenAppButton />}
+          <DownloadAppButton />
           <HoldAction
             label="長押しでログアウト"
             confirmedLabel="ログアウトしました"
