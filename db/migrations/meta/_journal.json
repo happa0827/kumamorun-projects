@@ -57,6 +57,13 @@
       "when": 1794622916678,
       "tag": "20261114022156_yellow_white_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794708519809,
+      "tag": "20261115020839_vengeful_wind_dancer",
+      "breakpoints": true
     }
   ]
 }

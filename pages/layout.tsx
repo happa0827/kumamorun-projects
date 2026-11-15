@@ -35,6 +35,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       </header>
       <main className="page">{children}</main>
       <footer className="site-footer">
+        <Link href="/contact">お問い合わせ</Link>
         <Link href="/privacy">プライバシーポリシー</Link>
       </footer>
     </div>

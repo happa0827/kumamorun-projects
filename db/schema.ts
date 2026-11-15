@@ -168,6 +168,30 @@ export const avatars = sqliteTable("avatars", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/**
+ * お問い合わせとフィードバック（/contact）。ログインしていなくても送れる。サイトだけが使い、アプリは読まない。
+ * account_id は送ったときにログインしていた人の user.id（していなければ NULL）。
+ * email は返事の宛先として本人が入れたもの（なくてもよい）。
+ * notified_at は運営者へ通知のメールを送れた時刻。送れなければ NULL のまま残る（内容は D1 で確かめる）。
+ */
+export const contactMessages = sqliteTable(
+  "contact_messages",
+  {
+    id: text("id").primaryKey(),
+    category: text("category", { enum: ["question", "bug", "idea", "other"] }).notNull(),
+    message: text("message").notNull(),
+    email: text("email"),
+    accountId: text("account_id"),
+    userAgent: text("user_agent"),
+    createdAt: integer("created_at").notNull(),
+    notifiedAt: integer("notified_at"),
+  },
+  (t) => [
+    index("contact_messages_time").on(t.createdAt),
+    check("contact_messages_category", sql`${t.category} IN ('question', 'bug', 'idea', 'other')`),
+  ],
+);
+
 /** ライブ状況。アカウントにつき1行。updated_at はサーバーが入れる。 */
 export const liveStatus = sqliteTable("live_status", {
   accountId: text("account_id").primaryKey(),
