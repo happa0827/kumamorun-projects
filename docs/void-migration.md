@@ -179,6 +179,7 @@ startBlocked, blockReason, daily, week
 | `POST /exchange` | `{ code, deviceName }` を受け、`{ token }` を返す。コードは一度しか使えず、5分で失効する。 |
 | `POST /logout` | この端末のトークンを失効する。`204`。 |
 | `GET /sync` | 設定、直近7日の記録、進化段階、花の数をまとめて返す。下記。 |
+| `GET /profile` | アカウントの `{ name, image }` を返す。`image` は自分で置いた写真の `data:` URL か、Google の写真の `https:` URL か `null`。アプリのアカウント画面に出す。 |
 | `PUT /settings` | `{ restrictions }` を保存する（後勝ち）。`204`。 |
 | `PUT /days` | `{ daily, history }` を保存する。日付ごとに後勝ちで書き、新しい7日より古い行は消す。`204`。 |
 | `POST /evolve` | `{ expectedStage, nextStage, flowersToAdd }`。下記。 |
