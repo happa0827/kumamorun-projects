@@ -216,6 +216,8 @@ export const characterReleases = sqliteTable(
     version: text("version").primaryKey(),
     publishedAt: integer("published_at").notNull(),
     publishedBy: text("published_by").notNull(),
+    /** この版の画像を KV から消した時刻。次の版が出てから PRUNE_AFTER_MS を過ぎると消す。まだなら NULL */
+    prunedAt: integer("pruned_at"),
   },
   (t) => [index("character_releases_time").on(t.publishedAt)],
 );

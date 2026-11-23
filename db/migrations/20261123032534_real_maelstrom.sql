@@ -1,0 +1,1 @@
+ALTER TABLE `character_releases` ADD `pruned_at` integer;

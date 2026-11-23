@@ -529,6 +529,30 @@ if [ -n "${ADMIN_EMAIL:-}" ]; then
   if grep -q "stage0-$STAMP-next" "$TINY"; then echo "NG      置き直した下書きが、公開した版に混ざる"; FAIL=$((FAIL+1)); else echo "ok      端末には公開した版のまま"; fi
   expect 200 "同期の版も変わらない" "${D[@]}" "$B/api/app/v1/sync"
   check "charactersVersion はそのまま" ".charactersVersion == \"$VERSION\""
+  echo "-- ?v= で /sync の版を指定して取る（取っている途中に公開されても、同じ版の組を取り終えられる）"
+  expect 200 "?v= に今の版" "${D[@]}" "$B/api/app/v1/characters/stage1?v=$VERSION"
+  expect 404 "?v= にない版（今の版には切り替えない）" "${D[@]}" "$B/api/app/v1/characters/stage1?v=no-such-version"
+  expect 404 "?v= の形が不正" "${D[@]}" "$B/api/app/v1/characters/stage1?v=a%20b"
+  expect 200 "もう一度公開する（置き直した stage0 が入る）" -b "$MJAR" "${H[@]}" -X POST "$B/api/admin/publish-characters"
+  VERSION2=$(jq -r 'if (.version | type) == "string" then .version else "" end' <<<"$BODY")
+  if [[ "$VERSION2" =~ ^[A-Za-z0-9._-]{1,64}$ ]] && [ "$VERSION2" != "$VERSION" ]; then echo "ok      新しい版（$VERSION2）"; else echo "NG      新しい版が「$VERSION2」"; FAIL=$((FAIL+1)); fi
+  curl -s -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/stage0?v=$VERSION"
+  if grep -q "stage0-$STAMP" "$TINY" && ! grep -q "stage0-$STAMP-next" "$TINY"; then echo "ok      前の版を指定すると、前の版の組が返る"; else echo "NG      前の版を指定しても、前の版の組が返らない"; FAIL=$((FAIL+1)); fi
+  curl -s -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/stage0?v=$VERSION2"
+  if grep -q "stage0-$STAMP-next" "$TINY"; then echo "ok      新しい版を指定すると、置き直した画像が返る"; else echo "NG      新しい版に置き直した画像がない"; FAIL=$((FAIL+1)); fi
+  curl -s -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/stage0"
+  if grep -q "stage0-$STAMP-next" "$TINY"; then echo "ok      ?v= がなければ、今の版の組が返る"; else echo "NG      ?v= なしで今の版が返らない"; FAIL=$((FAIL+1)); fi
+  echo "-- 同時に2回公開しても、版は重ならない"
+  RESULTS=$(for i in 1 2; do curl -s "${H[@]}" -b "$MJAR" -X POST "$B/api/admin/publish-characters" & done; wait)
+  if [ "$(jq -r .version <<<"$RESULTS" | sort -u | grep -c .)" = 2 ]; then echo "ok      2つの版は別"; else echo "NG      版が重なる: $(tr '\n' ' ' <<<"$RESULTS")"; FAIL=$((FAIL+1)); fi
+  echo "-- 次の版が出てから1日たった版の画像は、次の公開で消す（今の版は消さない）"
+  # これまでの版をすべて2日前の公開にする（ローカルの D1 だけ）
+  vp exec void db execute "UPDATE character_releases SET published_at = published_at - 172800000" >/dev/null 2>&1
+  expect 200 "公開する（古い版を消す）" -b "$MJAR" "${H[@]}" -X POST "$B/api/admin/publish-characters"
+  VERSION3=$(jq -r .version <<<"$BODY")
+  expect 404 "1日より前に置き換わった版は消えている" "${D[@]}" "$B/api/app/v1/characters/stage0?v=$VERSION"
+  expect 200 "今の版は取れる" "${D[@]}" "$B/api/app/v1/characters/stage0?v=$VERSION3"
+  expect 200 "?v= なしでも取れる" "${D[@]}" "$B/api/app/v1/characters/stage0"
   expect 204 "承認を取り消す" -b "$MJAR" "${H[@]}" -X DELETE "$B/api/admin/approvals/$DID"
   expect 200 "取り消したあとの同期" "${D[@]}" "$B/api/app/v1/sync"
   check "デモ版に戻り、版は null" '.edition == "demo" and .charactersVersion == null'
