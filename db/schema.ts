@@ -204,6 +204,22 @@ export const approvals = sqliteTable("approvals", {
   note: text("note"),
 });
 
+/**
+ * キャラクターの画像の公開の記録（src/server/edition.ts）。いちばん新しい行の version が、
+ * /sync の charactersVersion と、端末に渡す画像の組を決める。画像そのものは KV の
+ * "characters-release:<version>:<key>" にあり、公開したあとは変えない。
+ * 版を D1 に置くのは、KV は書いてから届くまでに時間差があり、/sync と画像の配信で版がずれうるため。
+ */
+export const characterReleases = sqliteTable(
+  "character_releases",
+  {
+    version: text("version").primaryKey(),
+    publishedAt: integer("published_at").notNull(),
+    publishedBy: text("published_by").notNull(),
+  },
+  (t) => [index("character_releases_time").on(t.publishedAt)],
+);
+
 /** ライブ状況。アカウントにつき1行。updated_at はサーバーが入れる。 */
 export const liveStatus = sqliteTable("live_status", {
   accountId: text("account_id").primaryKey(),

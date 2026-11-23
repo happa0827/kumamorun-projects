@@ -477,26 +477,41 @@ if [ -n "${ADMIN_EMAIL:-}" ]; then
   expect 200 "完全版の状況ページ" -b "$DJAR" "$B/"
   if grep -q '承認されています' <<<"$BODY"; then echo "ok      状況ページに「承認されています」が出る"; else echo "NG      状況ページに完全版と出ない"; FAIL=$((FAIL+1)); fi
   IMG=(-b "$MJAR" -H "Origin: $B" -H 'Content-Type: image/png')
+  # png <中身の目印>  署名、IHDR、目印を入れた tEXt、IEND の、最後まである PNG（CRC は見ないので 0）
+  be32() { printf "$(printf '\\x%02x\\x%02x\\x%02x\\x%02x' $(($1 >> 24 & 255)) $(($1 >> 16 & 255)) $(($1 >> 8 & 255)) $(($1 & 255)))"; }
+  png() {
+    printf '\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x00\x00\x00\x00'
+    be32 $((8 + ${#1})); printf 'tEXtComment\x00%s\x00\x00\x00\x00' "$1"
+    printf '\x00\x00\x00\x00IEND\xaeB`\x82'
+  }
   expect 415 "PNG でない画像は置けない" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage0" --data-binary $'\xff\xd8\xff\xe0jpeg'
-  expect 404 "知らない key には置けない" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage9" --data-binary $'\x89PNG\r\n\x1a\n'
+  expect 415 "署名だけの PNG は置けない" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage0" --data-binary $'\x89PNG\r\n\x1a\n'
+  png cut | head -c 40 >"$TINY"
+  expect 415 "途中で切れた PNG は置けない" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage0" --data-binary "@$TINY"
+  png x >"$TINY"
+  expect 404 "知らない key には置けない" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage9" --data-binary "@$TINY"
+  expect 404 "管理者でなければ画像を置けない" -b "$DJAR" -H "Origin: $B" -H 'Content-Type: image/png' -X PUT "$B/api/admin/characters/stage0" --data-binary "@$TINY"
   head -c 2097153 /dev/zero >"$TINY"
   expect 413 "2MB を超える画像は置けない" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage0" --data-binary "@$TINY"
-  expect 404 "管理者でなければ画像を置けない" -b "$DJAR" -H "Origin: $B" -H 'Content-Type: image/png' -X PUT "$B/api/admin/characters/stage0" --data-binary $'\x89PNG\r\n\x1a\n'
   # 画像はローカルの KV に残るので、毎回中身を変えて置き直す
   KEYS=(stage0 stage1 stage2 stage3 stage4 stage5 dandelion peony blueSpiderLily nightCherry)
   STAMP=$(date +%s%N)
+  BEFORE=$(curl -s "${D[@]}" "$B/api/app/v1/sync" | jq -r .charactersVersion)
   for k in "${KEYS[@]:0:9}"; do
-    printf '\x89PNG\r\n\x1a\n%s-%s' "$k" "$STAMP" >"$TINY"
+    png "$k-$STAMP" >"$TINY"
     curl -s -o /dev/null "${IMG[@]}" -X PUT "$B/api/admin/characters/$k" --data-binary "@$TINY"
   done
-  expect 200 "置いた画像を管理の画面で確かめる" -b "$MJAR" "$B/api/admin/characters/stage3"
+  expect 200 "置いた画像（下書き）を管理の画面で確かめる" -b "$MJAR" "$B/api/admin/characters/stage3"
   if grep -q "stage3-$STAMP" <<<"$BODY"; then echo "ok      置いた中身が返る"; else echo "NG      置いた中身と違う"; FAIL=$((FAIL+1)); fi
-  BEFORE=$(curl -s "${D[@]}" "$B/api/app/v1/sync" | jq -r .charactersVersion)
-  printf '\x89PNG\r\n\x1a\n%s-%s' nightCherry "$STAMP" >"$TINY"
+  # 公開する前の下書きは、端末に渡らない（前の版があれば前の版、なければ 404）
+  curl -s -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/stage3"
+  if grep -q "stage3-$STAMP" "$TINY"; then echo "NG      公開する前の下書きが端末に渡る"; FAIL=$((FAIL+1)); else echo "ok      公開する前の下書きは端末に渡らない"; fi
+  png "nightCherry-$STAMP" >"$TINY"
   expect 204 "10枚目を置く" "${IMG[@]}" -X PUT "$B/api/admin/characters/nightCherry" --data-binary "@$TINY"
   expect 404 "管理者でなければ公開できない" -b "$DJAR" "${H[@]}" -X POST "$B/api/admin/publish-characters"
   expect 200 "公開する" -b "$MJAR" "${H[@]}" -X POST "$B/api/admin/publish-characters"
-  VERSION=$(jq -r .version <<<"$BODY")
+  # version が文字列でなければ（null など）、空にして NG にする
+  VERSION=$(jq -r 'if (.version | type) == "string" then .version else "" end' <<<"$BODY")
   if [[ "$VERSION" =~ ^[A-Za-z0-9._-]{1,64}$ ]] && [ "$VERSION" != "$BEFORE" ]; then echo "ok      版が変わり、約束の形（$VERSION）"; else echo "NG      版が「$VERSION」（前は $BEFORE）"; FAIL=$((FAIL+1)); fi
   expect 200 "公開したあとの同期" "${D[@]}" "$B/api/app/v1/sync"
   check "charactersVersion が公開した版" ".charactersVersion == \"$VERSION\""
@@ -507,6 +522,13 @@ if [ -n "${ADMIN_EMAIL:-}" ]; then
       echo "NG      完全版の端末が $k を受け取れない: $(head -1 <<<"$out")"; FAIL=$((FAIL+1)); fi
   done
   echo "ok      完全版の端末が10枚を受け取る（PNG、no-store）"
+  echo "-- 公開したあとに置き直しても、公開した版は変わらない"
+  png "stage0-$STAMP-next" >"$TINY"
+  expect 204 "stage0 を置き直す" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage0" --data-binary "@$TINY"
+  curl -s -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/stage0"
+  if grep -q "stage0-$STAMP-next" "$TINY"; then echo "NG      置き直した下書きが、公開した版に混ざる"; FAIL=$((FAIL+1)); else echo "ok      端末には公開した版のまま"; fi
+  expect 200 "同期の版も変わらない" "${D[@]}" "$B/api/app/v1/sync"
+  check "charactersVersion はそのまま" ".charactersVersion == \"$VERSION\""
   expect 204 "承認を取り消す" -b "$MJAR" "${H[@]}" -X DELETE "$B/api/admin/approvals/$DID"
   expect 200 "取り消したあとの同期" "${D[@]}" "$B/api/app/v1/sync"
   check "デモ版に戻り、版は null" '.edition == "demo" and .charactersVersion == null'

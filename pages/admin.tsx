@@ -45,12 +45,15 @@ function Approvals({ initial, adminId }: { initial: Account[]; adminId: string }
   const approve = async (account: Account) => {
     setBusy(account.id);
     setError(null);
-    const response = await fetch(`/api/admin/approvals/${encodeURIComponent(account.id)}`, {
-      method: "PUT",
-    });
-    setBusy(null);
-    if (!response.ok) return setError(`承認できませんでした（${response.status}）`);
-    setApproved(account.id, Date.now());
+    try {
+      const status = await send(`/api/admin/approvals/${encodeURIComponent(account.id)}`, {
+        method: "PUT",
+      });
+      if (status !== "ok") return setError(`承認できませんでした（${status}）`);
+      setApproved(account.id, Date.now());
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
@@ -132,13 +135,14 @@ function Approvals({ initial, adminId }: { initial: Account[]; adminId: string }
                         confirmLabel="長押しで取り消す"
                         hold={{ confirmedLabel: "取り消しました" }}
                         onConfirm={async () => {
-                          const response = await fetch(
+                          // 失敗したら false を返し、ダイアログを開いたままにする（もう一度押せる）
+                          const status = await send(
                             `/api/admin/approvals/${encodeURIComponent(account.id)}`,
                             { method: "DELETE" },
                           );
-                          if (!response.ok) {
-                            setError(`取り消せませんでした（${response.status}）`);
-                            return;
+                          if (status !== "ok") {
+                            setError(`取り消せませんでした（${status}）`);
+                            return false;
                           }
                           setApproved(account.id, null);
                           setError(null);
@@ -154,6 +158,19 @@ function Approvals({ initial, adminId }: { initial: Account[]; adminId: string }
       )}
     </section>
   );
+}
+
+/**
+ * 本文を読まない要求を送る。成功なら "ok"、失敗なら状態の番号。
+ * つながらずに fetch が投げたときも、画面が止まらないよう「通信エラー」を返す。
+ */
+async function send(url: string, init: RequestInit): Promise<string> {
+  try {
+    const response = await fetch(url, init);
+    return response.ok ? "ok" : String(response.status);
+  } catch {
+    return "通信エラー";
+  }
 }
 
 function approvedTitle(account: Account) {
@@ -182,24 +199,32 @@ function Characters({ initial }: { initial: Loaded["characters"] }) {
   const publish = async () => {
     setPublishing(true);
     setMessage(null);
-    const response = await fetch("/api/admin/publish-characters", { method: "POST" });
-    setPublishing(false);
-    if (response.status === 409) {
-      const { missing: keys } = (await response.json()) as { missing: string[] };
+    try {
+      const response = await fetch("/api/admin/publish-characters", { method: "POST" });
+      if (response.status === 409) {
+        const { missing: keys } = (await response.json()) as { missing: string[] };
+        setMessage({
+          ok: false,
+          text: `まだ置いていない画像があります: ${keys.join("、")}`,
+        });
+        return;
+      }
+      if (!response.ok) {
+        setMessage({ ok: false, text: `公開できませんでした（${response.status}）` });
+        return;
+      }
+      const { version: next } = (await response.json()) as { version: string };
+      setVersion(next);
+      setDirty(false);
       setMessage({
-        ok: false,
-        text: `まだ置いていない画像があります: ${keys.join("、")}（置いた直後なら、1分ほど待ってから試してください）`,
+        ok: true,
+        text: "公開しました。完全版のアプリは、次の同期で画像を取り直します",
       });
-      return;
+    } catch {
+      setMessage({ ok: false, text: "公開できませんでした（通信エラー）" });
+    } finally {
+      setPublishing(false);
     }
-    if (!response.ok) {
-      setMessage({ ok: false, text: `公開できませんでした（${response.status}）` });
-      return;
-    }
-    const { version: next } = (await response.json()) as { version: string };
-    setVersion(next);
-    setDirty(false);
-    setMessage({ ok: true, text: "公開しました。完全版のアプリは、次の同期で画像を取り直します" });
   };
 
   return (
@@ -208,7 +233,7 @@ function Characters({ initial }: { initial: Loaded["characters"] }) {
         <h2 id="characters-title">キャラクターの画像</h2>
         <p className="muted">
           完全版のアプリに渡す画像です（PNG、1枚 2MB
-          まで）。リポジトリには入れず、ここから置きます。置いただけでは配りません。10枚そろえてから「公開」してください。
+          まで）。リポジトリには入れず、ここから置きます。ここに並ぶのは下書きで、置いただけでは配りません。10枚そろえて「公開」すると、その10枚が新しい版としてアプリに渡ります（公開した版は、あとから置き直しても変わりません）。
         </p>
         <p className="muted">
           公開中の版:{" "}
@@ -267,15 +292,19 @@ function CharacterSlot({
   const upload = async (file: File) => {
     if (file.size > 2 * 1024 * 1024) return onError(`${image.label}: 2MB を超えています`);
     setBusy(true);
-    const response = await fetch(`/api/admin/characters/${image.key}`, {
-      method: "PUT",
-      headers: { "content-type": "image/png" },
-      body: file,
-    });
-    setBusy(false);
-    if (response.status === 415) return onError(`${image.label}: PNG ではありません`);
-    if (!response.ok) return onError(`${image.label}: 置けませんでした（${response.status}）`);
-    onUploaded(image.key, file.size);
+    try {
+      const status = await send(`/api/admin/characters/${image.key}`, {
+        method: "PUT",
+        headers: { "content-type": "image/png" },
+        body: file,
+      });
+      if (status === "415")
+        return onError(`${image.label}: PNG ではないか、途中で切れたファイルです`);
+      if (status !== "ok") return onError(`${image.label}: 置けませんでした（${status}）`);
+      onUploaded(image.key, file.size);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

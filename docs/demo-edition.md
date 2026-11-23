@@ -67,11 +67,11 @@ WHERE id NOT IN (SELECT account_id FROM approvals);
 
 ### `GET /characters/{key}`（新規）
 
-完全版の画像を1枚返す。
+完全版の画像を1枚返す。返すのは公開中の版（`/sync` の `charactersVersion` と同じ版）の組だけ。
 
 - 完全版のアカウント: `200`、`Content-Type: image/png`、本文は PNG。2MB 以下。`Cache-Control: private, no-store`。
 - デモ版のアカウント: `403`（`{ "error": "demo_edition" }`）。
-- 知らない `key`: `404`。画像がまだ置かれていないときも `404`。
+- 知らない `key`: `404`。まだ一度も公開していないときも `404`。
 
 `key` は次の10個。アプリの `src-tauri/src/characters.rs` の `KEYS`、このリポジトリの `src/server/edition.ts` の `CHARACTER_KEYS` と同じ。
 
@@ -98,17 +98,25 @@ WHERE id NOT IN (SELECT account_id FROM approvals);
 **このリポジトリは PUBLIC なので、画像をリポジトリに入れない。**
 
 Workers KV に置く（R2 は Cloudflare のアカウントに支払い情報が要るため、無料のままの KV にした）。
-KV のキーは `characters:<key>`（PNG の base64）と、公開中の版の `characters-version`。公開の URL は持たず、Worker の `GET /characters/{key}` だけが読み出す。
+公開の URL は持たず、Worker の `GET /characters/{key}` だけが読み出す。置いた画像（下書き）と配る画像（公開した組）は分ける。
 
-置くのは管理者が `/admin` から行う（下の「承認の画面」）。置いただけでは配らず、10枚そろえて「公開」したときに `characters-version` が変わる。取りかけの組を配らないため。
+| 置き場所 | 中身 |
+|---|---|
+| KV `characters-draft:<key>` | 下書き（PNG の base64）。管理者が `/admin` から置き直すのはここだけ。端末には渡さない |
+| KV `characters-release:<version>:<key>` | 公開した組。公開のときに下書きの10枚を写し、そのあとは変えない |
+| D1 `character_releases` | 公開の記録（`version`、`published_at`、`published_by`）。いちばん新しい行が公開中の版 |
 
-KV は書いてから世界中に届くまで最大60秒ほどかかる。公開の直後に同期した端末が、まだ届いていない画像を取りに行くと `404` になることがある。置いてから1分ほど待って公開すれば当たらない。
+- 「公開」すると、下書きの10枚がそろっているかを1枚ずつ確かめ、新しい版のキーに写してから、最後に D1 に版を書く。途中で失敗しても、端末は前の版のまま。
+- `/sync` の `charactersVersion` と `GET /characters/{key}` は、どちらも D1 の版から決める。公開する前の下書きや、置き直しの途中の組は、端末に渡らない。
+- 版を D1 に置くのは、KV は書いてから届くまでに最大60秒ほどかかり、KV に版を置くと `/sync` と画像の配信で版がずれうるため。画像のキーは版ごとに新しく、初めて読まれるので、古い値は出ない。
+- KV には、今の版と1つ前の版の組を残す。それより古い組は、公開のときに KV から消す（D1 の記録は残す）。
+- 公開の瞬間に10枚を取っている途中の端末は、新旧の混ざった組を受け取ることがある。その端末も、次の同期で新しい版を見て取り直すので、元に戻る。
 
 ## 承認の画面（サイト、`/admin`）
 
 - 管理者だけが開ける。管理者は環境変数 `ADMINS`（`env.ts`）に、account_id か確認済みのメールアドレスをカンマで区切って並べる。管理者でなければ `404`。メニューに「管理」が出る。
 - アカウントの一覧（名前、メール、種類、登録日、版）。「承認する」で `approvals` に行を足し、「取り消す」で消す。
-- キャラクターの画像: 10枚の置き場所。PNG を選んで置き、そろったら「公開」する。
+- キャラクターの画像: 10枚の下書きの置き場所。PNG を選んで置き、そろったら「公開」する。公開した版は、あとから下書きを置き直しても変わらない。
 - 利用者向けの状況ページ（`/`）には、完全版か、デモ版なら「承認を待っています」を出す。親が子供の状況を見るときは、その子供の版を出す。申し込みは「お問い合わせ」（`/contact`）から受ける。
 
 承認すると、アプリは次の同期（最大10分後。アカウント画面を開けばすぐ）で完全版になり、画像を受け取る。
@@ -122,13 +130,13 @@ KV は書いてから世界中に届くまで最大60秒ほどかかる。公開
 |---|---|
 | `PUT /api/admin/approvals/:id` | 承認する。`204`。アカウントがなければ `404` |
 | `DELETE /api/admin/approvals/:id` | 承認を取り消す。`204` |
-| `PUT /api/admin/characters/:key` | 画像を置く。本文は PNG のバイト列。PNG でなければ `415`、2MB を超えると `413` |
-| `GET /api/admin/characters/:key` | 置いた画像を返す（確かめ用） |
+| `PUT /api/admin/characters/:key` | 下書きに画像を置く。本文は PNG のバイト列。最後まである PNG（署名、最初が `IHDR`、最後が `IEND`）でなければ `415`、2MB を超えると `413` |
+| `GET /api/admin/characters/:key` | 下書きの画像を返す（確かめ用） |
 | `POST /api/admin/publish-characters` | 公開する（版を変える）。`{ version }`。10枚そろっていなければ `409`（`{ error: "incomplete", missing }`） |
 
 ## サイトの動き（実装済み）
 
-- 版の判定とKV の読み書き: `src/server/edition.ts`。管理者の判定と一覧: `src/server/admin.ts`。
+- 版の判定、下書きと公開の組の読み書き: `src/server/edition.ts`。管理者の判定と一覧: `src/server/admin.ts`。
 - `/sync` と `/import` の応答: `src/server/account-data.ts` の `readSync`。
 - 試験: `scripts/smoke-api.sh`（「デモ版と完全版」と「管理」。管理は `ADMINS=… vp dev` と `ADMIN_EMAIL=…` を渡したときだけ流れる）。
 
@@ -137,7 +145,7 @@ KV は書いてから世界中に届くまで最大60秒ほどかかる。公開
 **サイトを先に出す。** アプリは `edition` が欠けているとデモ版として扱うので、アプリを先に出すと、既存の利用者が一時的にデモ版になる。
 
 1. サイト: Worker の設定に `ADMINS` を入れてから、main に出す（デプロイで `approvals` のマイグレーションと既存アカウントの移行が流れ、KV が作られる）。
-2. `/admin` で10枚の画像を置き、1分ほど待ってから「公開」する。
+2. `/admin` で10枚の画像を置き、「公開」する。
 3. 確かめる: 既存のアカウントで `GET /sync` が `"edition": "full"` と版を返し、`GET /characters/stage0` が PNG を返す。新しいアカウントでは `"demo"` と `403`。
 4. アプリ: 新しい版を出す。
 5. 既存の利用者が更新すると、最初の同期まではシルエットで、同期の後に画像が出る。
