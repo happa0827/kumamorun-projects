@@ -2,6 +2,7 @@ import { defineHandler, type InferProps } from "void";
 import { getUser } from "void/auth";
 import { env } from "void/env";
 import { readLiveStatus } from "../src/server/account-data";
+import { type Edition, isApproved } from "../src/server/edition";
 import { getMember, listChildren, targetAccount } from "../src/server/family";
 import { configuredProviders } from "../src/oauth";
 import { safeNext } from "../src/safe-next";
@@ -20,22 +21,31 @@ export const loader = defineHandler(async (c) => {
 
   const member = await getMember(user.id);
   if (!member) return c.redirect(`/welcome?next=${encodeURIComponent(next)}`);
-  if (member.kind !== "parent" || !member.familyId)
+  if (member.kind !== "parent" || !member.familyId) {
+    const [status, approved] = await Promise.all([readLiveStatus(user.id), isApproved(user.id)]);
     return {
       signedIn: true as const,
       view: "self" as const,
-      status: await readLiveStatus(user.id),
+      status,
+      edition: editionOf(approved),
     };
+  }
 
   // 親は子供の状況を見る。?child= がなければ最初の子供。
   const children = (await listChildren(member.familyId)).map((p) => ({ id: p.id, name: p.name }));
   const selected =
     (await targetAccount(user.id, member, c.req.query("child"))) ?? children[0]?.id ?? null;
+  const [status, approved] = selected
+    ? await Promise.all([readLiveStatus(selected), isApproved(selected)])
+    : [null, false];
   return {
     signedIn: true as const,
     view: "family" as const,
     children,
     selected,
-    status: selected ? await readLiveStatus(selected) : null,
+    status,
+    edition: editionOf(approved),
   };
 });
+
+const editionOf = (approved: boolean): Edition => (approved ? "full" : "demo");

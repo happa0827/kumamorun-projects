@@ -8,12 +8,14 @@
 // アプリは日付が変わったときに前の日を評価して1回だけ進化するので、ふつうの使い方では当たらない。
 // 子供は花でショップの品（親が決めた現実のごほうび）を買えるので、トークンで連打して花を増やせないようにする。
 // 大人は自分の花なので確かめない。
+// デモ版のアカウントは 403 demo_edition（段階と花は変えない）。アプリはデモ版では呼ばないが、ここでも止める。
 import { progress } from "@schema";
 import { defineHandler } from "void";
 import { and, db, eq, isNull, ne, or, sql } from "void/db";
 import { z } from "zod";
 import { parseBody } from "../../../../src/server/body";
 import { requireDevice } from "../../../../src/server/device-auth";
+import { isApproved } from "../../../../src/server/edition";
 import { getMember } from "../../../../src/server/family";
 import { BLOOM_FLOWERS, Stage } from "../../../../src/server/shapes";
 
@@ -34,6 +36,7 @@ export const POST = defineHandler(requireDevice, async (c) => {
   if (!isAllowed(body.data)) return c.json({ error: "invariant_violation" }, 422);
 
   const { accountId } = c.get("device");
+  if (!(await isApproved(accountId))) return c.json({ error: "demo_edition" }, 403);
   const { expectedStage, nextStage, flowersToAdd } = body.data;
   const now = Date.now();
   // 日本時間の日付（YYYY-MM-DD）

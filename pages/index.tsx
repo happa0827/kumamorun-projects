@@ -4,6 +4,7 @@ import { Link } from "@void/react";
 import { EmptyState } from "@/components/arc/empty-state/empty-state";
 import { AuthScreen, safeNext } from "../src/components/auth-screen";
 import { ChildTabs } from "../src/components/child-tabs";
+import { EditionNotice } from "../src/components/edition-notice";
 import { StatusView } from "../src/components/status-view";
 import type { Props } from "./index.server";
 
@@ -20,9 +21,15 @@ export default function HomePage(props: Props) {
       </div>
     );
   }
-  if (props.view === "self") return <StatusView initial={props.status} />;
+  if (props.view === "self")
+    return (
+      <>
+        <EditionNotice edition={props.edition} />
+        <StatusView initial={props.status} />
+      </>
+    );
 
-  const { children, selected, status } = props;
+  const { children, selected, status, edition } = props;
   const child = children.find((c) => c.id === selected);
   if (!child || !status) {
     return (
@@ -38,6 +45,7 @@ export default function HomePage(props: Props) {
   return (
     <>
       <ChildTabs base="/" list={children} selected={child.id} />
+      <EditionNotice edition={edition} name={child.name} />
       {/* 子供を切り替えたら、取り直しの間隔も作り直す */}
       <StatusView key={child.id} initial={status} account={child.id} name={child.name} />
     </>

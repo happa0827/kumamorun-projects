@@ -3,12 +3,20 @@
 // 読んだ種類と家族は member にも置き、loadViewer と requireViewer が読み直さずに使う（src/server/viewer.ts）。
 import { type CloudContext, defineMiddleware } from "void";
 import { getUser } from "void/auth";
+import { isAdmin } from "../src/server/admin";
 import { getMember, type Kind, type Member } from "../src/server/family";
 
 declare module "void" {
   interface CloudContextVariables {
     /** name と image はヘッダーの写真（なければ頭文字）に使う */
-    shared: { signedIn: boolean; kind: Kind | null; name: string; image: string | null };
+    shared: {
+      signedIn: boolean;
+      kind: Kind | null;
+      name: string;
+      image: string | null;
+      /** 管理者（src/server/admin.ts）。メニューに「管理」を出す */
+      admin: boolean;
+    };
     /** このリクエストの開始時に読んだ、ログイン中の人の種類と家族（画面には渡さない） */
     member: { accountId: string; member: Member | null };
   }
@@ -29,6 +37,7 @@ export default defineMiddleware(async (c, next) => {
     kind: member?.kind ?? null,
     name: user?.name ?? "",
     image: user?.image ?? null,
+    admin: isAdmin(user),
   });
   if (user) c.set("member", { accountId: user.id, member });
   await next();

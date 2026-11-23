@@ -193,6 +193,35 @@ export const contactMessages = sqliteTable(
   ],
 );
 
+/**
+ * 完全版の承認（docs/demo-edition.md）。アカウントにつき0か1行。行があれば完全版、なければデモ版。
+ * approved_by は承認した管理者の user.id。公開の時点の既存アカウントをマイグレーションで入れた行は NULL。
+ */
+export const approvals = sqliteTable("approvals", {
+  accountId: text("account_id").primaryKey(),
+  approvedAt: integer("approved_at").notNull(),
+  approvedBy: text("approved_by"),
+  note: text("note"),
+});
+
+/**
+ * キャラクターの画像の公開の記録（src/server/edition.ts）。いちばん新しい行の version が、
+ * /sync の charactersVersion と、端末に渡す画像の組を決める。画像そのものは KV の
+ * "characters-release:<version>:<key>" にあり、公開したあとは変えない。
+ * 版を D1 に置くのは、KV は書いてから届くまでに時間差があり、/sync と画像の配信で版がずれうるため。
+ */
+export const characterReleases = sqliteTable(
+  "character_releases",
+  {
+    version: text("version").primaryKey(),
+    publishedAt: integer("published_at").notNull(),
+    publishedBy: text("published_by").notNull(),
+    /** この版の画像を KV から消した時刻。次の版が出てから PRUNE_AFTER_MS を過ぎると消す。まだなら NULL */
+    prunedAt: integer("pruned_at"),
+  },
+  (t) => [index("character_releases_time").on(t.publishedAt)],
+);
+
 /** ライブ状況。アカウントにつき1行。updated_at はサーバーが入れる。 */
 export const liveStatus = sqliteTable("live_status", {
   accountId: text("account_id").primaryKey(),
