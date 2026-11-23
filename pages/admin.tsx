@@ -1,5 +1,5 @@
 // 管理: 完全版の承認と、キャラクターの画像（docs/demo-edition.md）。管理者（ADMINS）だけが開ける。
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ImageUp, Upload } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
 import { Badge } from "@/components/arc/badge/badge";
@@ -181,10 +181,24 @@ function approvedTitle(account: Account) {
 
 function Characters({ initial }: { initial: Loaded["characters"] }) {
   const [images, setImages] = useState(initial.images);
-  /** 配っている版。公開しても1分は変わらないので、ページを開いたときの値のまま出す */
-  const version = initial.version;
+  /** 配っている版 */
+  const [version, setVersion] = useState(initial.version);
   /** 公開したが、まだ配り始めていない版（公開から1分後に配り始める） */
   const [pending, setPending] = useState(initial.pending);
+
+  // 配り始める時刻（servesAt）が来たら、配信待ちの版を「配っている版」に移す。
+  // 時刻はサーバーの時計なので、ずれを見込んで少し遅らせる。
+  useEffect(() => {
+    if (!pending) return;
+    const timer = window.setTimeout(
+      () => {
+        setVersion(pending.version);
+        setPending(null);
+      },
+      Math.max(0, pending.servesAt - Date.now()) + 2000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [pending]);
   /** 公開してから置き直した画像があるか。あれば「公開」を促す。 */
   const [dirty, setDirty] = useState(false);
   const [publishing, setPublishing] = useState(false);

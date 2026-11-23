@@ -498,7 +498,9 @@ if [ -n "${ADMIN_EMAIL:-}" ]; then
   # 画像はローカルの KV に残るので、毎回中身を変えて置き直す
   KEYS=(stage0 stage1 stage2 stage3 stage4 stage5 dandelion peony blueSpiderLily nightCherry)
   STAMP=$(date +%s%N)
-  BEFORE=$(curl -s "${D[@]}" "$B/api/app/v1/sync" | jq -r .charactersVersion)
+  # 公開の前に配っていた版。JSON のまま（まだ配っていなければ null）も持ち、公開した直後と比べる
+  BEFORE_JSON=$(curl -s "${D[@]}" "$B/api/app/v1/sync" | jq -c .charactersVersion)
+  BEFORE=$(jq -r . <<<"$BEFORE_JSON")
   for k in "${KEYS[@]:0:9}"; do
     png "$k-$STAMP" >"$TINY"
     curl -s -o /dev/null "${IMG[@]}" -X PUT "$B/api/admin/characters/$k" --data-binary "@$TINY"
@@ -518,7 +520,7 @@ if [ -n "${ADMIN_EMAIL:-}" ]; then
   check "配り始める時刻（公開から1分後）" '(.servesAt | type) == "number"'
   echo "-- 公開してから1分は配らない（KV の画像が行き渡るのを待つ）。?v= で指定すれば、もう取れる"
   expect 200 "公開した直後の同期" "${D[@]}" "$B/api/app/v1/sync"
-  check "charactersVersion はまだ前の版" ".charactersVersion != \"$VERSION\""
+  check "charactersVersion は公開の前の版のまま（$BEFORE_JSON）" ".charactersVersion == $BEFORE_JSON"
   expect 200 "公開した直後でも ?v= で指定すれば取れる" "${D[@]}" "$B/api/app/v1/characters/stage0?v=$VERSION"
   serve_now "$VERSION"
   expect 200 "1分たったあとの同期" "${D[@]}" "$B/api/app/v1/sync"
