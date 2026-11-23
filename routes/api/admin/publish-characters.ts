@@ -1,5 +1,6 @@
 // POST /api/admin/publish-characters  下書きの10枚を新しい版として公開する（/sync の charactersVersion を変える）。
-// 完全版のアプリは、次の同期で10枚を取り直す。10枚そろっていなければ 409 と足りない key。
+// 応答は { version, servesAt }。/sync が新しい版を返し始めるのは servesAt（公開から1分後。KV の画像が
+// 行き渡ってから）。完全版のアプリは、そのあとの同期で10枚を取り直す。10枚そろっていなければ 409 と足りない key。
 // 管理者だけ（src/server/admin.ts）。
 import { defineHandler } from "void";
 import { requireAdmin } from "../../../src/server/admin";
@@ -9,5 +10,5 @@ export const POST = defineHandler(async (c) => {
   const admin = requireAdmin(c);
   const result = await publishCharacters(admin.id);
   if (!result.ok) return c.json({ error: "incomplete", missing: result.missing }, 409);
-  return { version: result.version };
+  return { version: result.version, servesAt: result.servesAt };
 });

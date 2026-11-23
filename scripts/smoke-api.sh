@@ -31,6 +31,8 @@ signup() {
   expect 200 "$email で登録" -c "$jar" -b "$jar" "${H[@]}" -X POST "$B/api/auth/sign-in/email-otp" -d "{\"email\":\"$email\",\"otp\":\"$otp\"}"
 }
 
+# serve_now <版>  ローカルの D1 で、その版を1分より前の公開にする（配り始めるまでの1分を待たない）
+serve_now() { vp exec void db execute "UPDATE character_releases SET published_at = published_at - 61000 WHERE version = '$1'" >/dev/null 2>&1; }
 # approve_db <ID>  ローカルの D1 で完全版にする（管理の画面を通さない）
 approve_db() { vp exec void db execute "INSERT OR IGNORE INTO approvals (account_id, approved_at, note) VALUES ('$1', 0, 'smoke')" >/dev/null 2>&1; }
 
@@ -513,7 +515,13 @@ if [ -n "${ADMIN_EMAIL:-}" ]; then
   # version が文字列でなければ（null など）、空にして NG にする
   VERSION=$(jq -r 'if (.version | type) == "string" then .version else "" end' <<<"$BODY")
   if [[ "$VERSION" =~ ^[A-Za-z0-9._-]{1,64}$ ]] && [ "$VERSION" != "$BEFORE" ]; then echo "ok      版が変わり、約束の形（$VERSION）"; else echo "NG      版が「$VERSION」（前は $BEFORE）"; FAIL=$((FAIL+1)); fi
-  expect 200 "公開したあとの同期" "${D[@]}" "$B/api/app/v1/sync"
+  check "配り始める時刻（公開から1分後）" '(.servesAt | type) == "number"'
+  echo "-- 公開してから1分は配らない（KV の画像が行き渡るのを待つ）。?v= で指定すれば、もう取れる"
+  expect 200 "公開した直後の同期" "${D[@]}" "$B/api/app/v1/sync"
+  check "charactersVersion はまだ前の版" ".charactersVersion != \"$VERSION\""
+  expect 200 "公開した直後でも ?v= で指定すれば取れる" "${D[@]}" "$B/api/app/v1/characters/stage0?v=$VERSION"
+  serve_now "$VERSION"
+  expect 200 "1分たったあとの同期" "${D[@]}" "$B/api/app/v1/sync"
   check "charactersVersion が公開した版" ".charactersVersion == \"$VERSION\""
   for k in "${KEYS[@]}"; do
     out=$(curl -s -D - -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/$k" | tr -d '\r')
@@ -536,6 +544,7 @@ if [ -n "${ADMIN_EMAIL:-}" ]; then
   expect 200 "もう一度公開する（置き直した stage0 が入る）" -b "$MJAR" "${H[@]}" -X POST "$B/api/admin/publish-characters"
   VERSION2=$(jq -r 'if (.version | type) == "string" then .version else "" end' <<<"$BODY")
   if [[ "$VERSION2" =~ ^[A-Za-z0-9._-]{1,64}$ ]] && [ "$VERSION2" != "$VERSION" ]; then echo "ok      新しい版（$VERSION2）"; else echo "NG      新しい版が「$VERSION2」"; FAIL=$((FAIL+1)); fi
+  serve_now "$VERSION2"
   curl -s -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/stage0?v=$VERSION"
   if grep -q "stage0-$STAMP" "$TINY" && ! grep -q "stage0-$STAMP-next" "$TINY"; then echo "ok      前の版を指定すると、前の版の組が返る"; else echo "NG      前の版を指定しても、前の版の組が返らない"; FAIL=$((FAIL+1)); fi
   curl -s -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/stage0?v=$VERSION2"
@@ -543,8 +552,11 @@ if [ -n "${ADMIN_EMAIL:-}" ]; then
   curl -s -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/stage0"
   if grep -q "stage0-$STAMP-next" "$TINY"; then echo "ok      ?v= がなければ、今の版の組が返る"; else echo "NG      ?v= なしで今の版が返らない"; FAIL=$((FAIL+1)); fi
   echo "-- 同時に2回公開しても、版は重ならない"
-  RESULTS=$(for i in 1 2; do curl -s "${H[@]}" -b "$MJAR" -X POST "$B/api/admin/publish-characters" & done; wait)
-  if [ "$(jq -r .version <<<"$RESULTS" | sort -u | grep -c .)" = 2 ]; then echo "ok      2つの版は別"; else echo "NG      版が重なる: $(tr '\n' ' ' <<<"$RESULTS")"; FAIL=$((FAIL+1)); fi
+  # 1行に「状態 本文」を出す。両方 200 で、両方の version が約束の形の文字列で、互いに違えば通す
+  RESULTS=$(for i in 1 2; do curl -s -w '\t%{http_code}\n' "${H[@]}" -b "$MJAR" -X POST "$B/api/admin/publish-characters" & done; wait)
+  CODES=$(cut -f2 <<<"$RESULTS" | sort | tr '\n' ' ')
+  VERSIONS=$(cut -f1 <<<"$RESULTS" | jq -r 'if (.version | type) == "string" then .version else "" end' | grep -E '^[A-Za-z0-9._-]{1,64}$' | sort -u | grep -c .)
+  if [ "$CODES" = "200 200 " ] && [ "$VERSIONS" = 2 ]; then echo "ok      両方 200 で、2つの版は別"; else echo "NG      同時の公開: 状態 $CODES、別の版 $VERSIONS 個: $(tr '\n' ' ' <<<"$RESULTS")"; FAIL=$((FAIL+1)); fi
   echo "-- 次の版が出てから1日たった版の画像は、次の公開で消す（今の版は消さない）"
   # これまでの版をすべて2日前の公開にする（ローカルの D1 だけ）
   vp exec void db execute "UPDATE character_releases SET published_at = published_at - 172800000" >/dev/null 2>&1

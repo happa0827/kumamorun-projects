@@ -13,7 +13,7 @@
 // こうすると、公開する前の画像や、置き直しの途中の組が端末に渡ることはない。
 // 新しい版のキーは初めて読まれるので、KV の古い値（届くまでの時間差）が出ることもない。
 import { approvals, characterReleases } from "@schema";
-import { db, desc, eq } from "void/db";
+import { db, desc, eq, lte } from "void/db";
 import { kv } from "void/kv";
 import { fromBase64, toBase64 } from "./avatar";
 
@@ -93,14 +93,34 @@ export async function isApproved(accountId: string): Promise<boolean> {
   return row !== undefined;
 }
 
-/** 公開中の版。まだ一度も公開していなければ null。 */
+/**
+ * 公開してから、その版を /sync で配り始めるまでの時間。KV は書いた値が世界中で読めるまでに最大60秒ほどかかる。
+ * D1 に版を書いた直後に配ると、遠くの端末が新しい版の画像を取りに行き、まだ届いていなくて 404 になりうる。
+ */
+export const PROPAGATION_MS = 60 * 1000;
+
+/**
+ * 配っている版（/sync の charactersVersion と、?v= のない画像の要求が使う版）。
+ * 公開してから PROPAGATION_MS を過ぎた版のうち、いちばん新しいもの。まだなければ null。
+ */
 export async function readCharactersVersion(): Promise<string | null> {
   const [row] = await db
     .select({ version: characterReleases.version })
     .from(characterReleases)
+    .where(lte(characterReleases.publishedAt, Date.now() - PROPAGATION_MS))
     .orderBy(desc(characterReleases.publishedAt), desc(characterReleases.version))
     .limit(1);
   return row?.version ?? null;
+}
+
+/** いちばん新しく公開した版（まだ配り始めていなくても）。管理の画面に出す。 */
+async function readLatestRelease() {
+  const [row] = await db
+    .select({ version: characterReleases.version, publishedAt: characterReleases.publishedAt })
+    .from(characterReleases)
+    .orderBy(desc(characterReleases.publishedAt), desc(characterReleases.version))
+    .limit(1);
+  return row ?? null;
 }
 
 /** /sync と /import の応答に足すキー。デモ版の charactersVersion は null。 */
@@ -141,15 +161,24 @@ export async function saveDraftCharacter(key: CharacterKey, bytes: Uint8Array) {
   await drafts.put(key, toBase64(bytes), { metadata });
 }
 
-/** 管理の画面に出す、下書きの画像と公開中の版。 */
+/**
+ * 管理の画面に出す、下書きの画像と版。
+ * version は配っている版。pending は公開したが、まだ配り始めていない版（servesAt に配り始める）。
+ */
 export async function characterStatus() {
-  const [listed, version] = await Promise.all([
+  const [listed, version, latest] = await Promise.all([
     drafts.list<CharacterMeta>(),
     readCharactersVersion(),
+    readLatestRelease(),
   ]);
   const byKey = new Map(listed.keys.map((k) => [k.name, k.metadata ?? null]));
+  const pending =
+    latest && latest.version !== version
+      ? { version: latest.version, servesAt: latest.publishedAt + PROPAGATION_MS }
+      : null;
   return {
     version,
+    pending,
     images: CHARACTER_KEYS.map((key) => {
       const meta = byKey.get(key);
       return {
@@ -171,7 +200,9 @@ export async function characterStatus() {
  */
 export async function publishCharacters(
   adminId: string,
-): Promise<{ ok: true; version: string } | { ok: false; missing: CharacterKey[] }> {
+): Promise<
+  { ok: true; version: string; servesAt: number } | { ok: false; missing: CharacterKey[] }
+> {
   // 一覧（list）は書いてから載るまでに時間がかかるので、1枚ずつ読んで確かめる
   const images = await Promise.all(
     CHARACTER_KEYS.map(async (key) => ({ key, data: await drafts.get(key) })),
@@ -183,11 +214,11 @@ export async function publishCharacters(
   const version = `${new Date().toISOString().replaceAll(":", ".")}-${suffix}`;
   if (!isVersion(version)) throw new Error(`bad version: ${version}`);
   for (const { key, data } of images) await kv.put(releaseKey(version, key), data);
-  await db
-    .insert(characterReleases)
-    .values({ version, publishedAt: Date.now(), publishedBy: adminId });
+  const publishedAt = Date.now();
+  await db.insert(characterReleases).values({ version, publishedAt, publishedBy: adminId });
   await pruneReleases();
-  return { ok: true, version };
+  // /sync で配り始めるのは PROPAGATION_MS のあと（KV の画像が行き渡ってから）
+  return { ok: true, version, servesAt: publishedAt + PROPAGATION_MS };
 }
 
 /**

@@ -9,6 +9,7 @@ import { ConfirmDialog } from "../src/components/confirm-dialog";
 import type { Props } from "./admin.server";
 
 const date = new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeZone: "Asia/Tokyo" });
+const time = new Intl.DateTimeFormat("ja-JP", { timeStyle: "medium", timeZone: "Asia/Tokyo" });
 const dateTime = new Intl.DateTimeFormat("ja-JP", {
   dateStyle: "medium",
   timeStyle: "short",
@@ -180,7 +181,10 @@ function approvedTitle(account: Account) {
 
 function Characters({ initial }: { initial: Loaded["characters"] }) {
   const [images, setImages] = useState(initial.images);
-  const [version, setVersion] = useState(initial.version);
+  /** 配っている版。公開しても1分は変わらないので、ページを開いたときの値のまま出す */
+  const version = initial.version;
+  /** 公開したが、まだ配り始めていない版（公開から1分後に配り始める） */
+  const [pending, setPending] = useState(initial.pending);
   /** 公開してから置き直した画像があるか。あれば「公開」を促す。 */
   const [dirty, setDirty] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -213,12 +217,12 @@ function Characters({ initial }: { initial: Loaded["characters"] }) {
         setMessage({ ok: false, text: `公開できませんでした（${response.status}）` });
         return;
       }
-      const { version: next } = (await response.json()) as { version: string };
-      setVersion(next);
+      const next = (await response.json()) as { version: string; servesAt: number };
+      setPending(next);
       setDirty(false);
       setMessage({
         ok: true,
-        text: "公開しました。完全版のアプリは、次の同期で画像を取り直します",
+        text: `公開しました。${time.format(next.servesAt)} から配り始め、完全版のアプリはそのあとの同期で画像を取り直します`,
       });
     } catch {
       setMessage({ ok: false, text: "公開できませんでした（通信エラー）" });
@@ -236,13 +240,19 @@ function Characters({ initial }: { initial: Loaded["characters"] }) {
           まで）。リポジトリには入れず、ここから置きます。ここに並ぶのは下書きで、置いただけでは配りません。10枚そろえて「公開」すると、その10枚が新しい版としてアプリに渡ります（公開した版は、あとから置き直しても変わりません）。置いた画像が行き渡るまで、1分ほど待ってから公開してください。
         </p>
         <p className="muted">
-          公開中の版:{" "}
+          配っている版:{" "}
           {version ? (
             <span className="mono">{version}</span>
           ) : (
-            "まだ公開していません（完全版のアプリもシルエットのままです）"
+            "まだ配っていません（完全版のアプリもシルエットのままです）"
           )}
         </p>
+        {pending && (
+          <p className="muted">
+            配信待ちの版: <span className="mono">{pending.version}</span>（
+            {time.format(pending.servesAt)} から配ります。画像が行き渡るのを待っています）
+          </p>
+        )}
       </div>
       <Alert
         tone={message?.ok ? "success" : "danger"}
@@ -263,13 +273,13 @@ function Characters({ initial }: { initial: Loaded["characters"] }) {
       <div className="row">
         <Button
           type="button"
-          variant={dirty || !version ? "primary" : "secondary"}
+          variant={dirty || (!version && !pending) ? "primary" : "secondary"}
           loading={publishing}
           disabled={missing.length > 0}
           onClick={() => void publish()}
         >
           <Upload size={16} strokeWidth={1.75} aria-hidden="true" />
-          {version ? "置き直した画像を公開" : "公開"}
+          {version || pending ? "置き直した画像を公開" : "公開"}
         </Button>
         {missing.length > 0 && <p className="muted">あと {missing.length} 枚</p>}
       </div>
