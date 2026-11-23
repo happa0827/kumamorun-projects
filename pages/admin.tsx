@@ -9,6 +9,8 @@ import { ConfirmDialog } from "../src/components/confirm-dialog";
 import type { Props } from "./admin.server";
 
 const date = new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeZone: "Asia/Tokyo" });
+/** 配信待ちの版があるときに、配っている版を読み直す間隔 */
+const STATUS_POLL_MS = 10_000;
 const time = new Intl.DateTimeFormat("ja-JP", { timeStyle: "medium", timeZone: "Asia/Tokyo" });
 const dateTime = new Intl.DateTimeFormat("ja-JP", {
   dateStyle: "medium",
@@ -186,19 +188,30 @@ function Characters({ initial }: { initial: Loaded["characters"] }) {
   /** 公開したが、まだ配り始めていない版（公開から1分後に配り始める） */
   const [pending, setPending] = useState(initial.pending);
 
-  // 配り始める時刻（servesAt）が来たら、配信待ちの版を「配っている版」に移す。
-  // 時刻はサーバーの時計なので、ずれを見込んで少し遅らせる。
+  // 配信待ちの版がある間は、サーバーの状態を10秒ごとに読み直す。
+  // 画面の時計では切り替えない（時計のずれや、配り始める前にもう一度公開したときに、表示がずれるため）。
+  const waiting = pending !== null;
   useEffect(() => {
-    if (!pending) return;
-    const timer = window.setTimeout(
-      () => {
-        setVersion(pending.version);
-        setPending(null);
-      },
-      Math.max(0, pending.servesAt - Date.now()) + 2000,
-    );
-    return () => window.clearTimeout(timer);
-  }, [pending]);
+    if (!waiting) return;
+    let alive = true;
+    const poll = window.setInterval(async () => {
+      try {
+        const response = await fetch("/api/admin/character-status", {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok || !alive) return;
+        const next = (await response.json()) as Pick<Loaded["characters"], "version" | "pending">;
+        setVersion(next.version);
+        setPending(next.pending);
+      } catch {
+        // つながらなければ、次の回に読み直す
+      }
+    }, STATUS_POLL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(poll);
+    };
+  }, [waiting]);
   /** 公開してから置き直した画像があるか。あれば「公開」を促す。 */
   const [dirty, setDirty] = useState(false);
   const [publishing, setPublishing] = useState(false);

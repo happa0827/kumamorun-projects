@@ -138,6 +138,7 @@ Workers KV に置く（R2 は Cloudflare のアカウントに支払い情報が
 | `PUT /api/admin/characters/:key` | 下書きに画像を置く。本文は PNG のバイト列。最後まである PNG（署名、最初が `IHDR`、最後が `IEND`）でなければ `415`、2MB を超えると `413` |
 | `GET /api/admin/characters/:key` | 下書きの画像を返す（確かめ用） |
 | `POST /api/admin/publish-characters` | 公開する（版を変える）。`{ version, servesAt }`。`servesAt` は `/sync` が新しい版を返し始める時刻（公開から1分後）。10枚そろっていなければ `409`（`{ error: "incomplete", missing }`） |
+| `GET /api/admin/character-status` | 配っている版と、配信待ちの版（`{ version, pending: { version, servesAt } \| null }`）。管理の画面が、配信待ちの間だけ10秒ごとに読む |
 
 ## サイトの動き（実装済み）
 

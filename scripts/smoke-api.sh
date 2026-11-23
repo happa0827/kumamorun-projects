@@ -522,7 +522,12 @@ if [ -n "${ADMIN_EMAIL:-}" ]; then
   expect 200 "公開した直後の同期" "${D[@]}" "$B/api/app/v1/sync"
   check "charactersVersion は公開の前の版のまま（$BEFORE_JSON）" ".charactersVersion == $BEFORE_JSON"
   expect 200 "公開した直後でも ?v= で指定すれば取れる" "${D[@]}" "$B/api/app/v1/characters/stage0?v=$VERSION"
+  expect 200 "管理の画面が読む、配信の状態（配信待ち）" -b "$MJAR" "$B/api/admin/character-status"
+  check "配っているのは前の版、配信待ちが公開した版" ".version == $BEFORE_JSON and .pending.version == \"$VERSION\" and (.pending.servesAt | type) == \"number\""
+  expect 404 "管理者でなければ配信の状態を読めない" -b "$DJAR" "$B/api/admin/character-status"
   serve_now "$VERSION"
+  expect 200 "配信の状態（配り始めたあと）" -b "$MJAR" "$B/api/admin/character-status"
+  check "配っているのが公開した版、配信待ちなし" ".version == \"$VERSION\" and .pending == null"
   expect 200 "1分たったあとの同期" "${D[@]}" "$B/api/app/v1/sync"
   check "charactersVersion が公開した版" ".charactersVersion == \"$VERSION\""
   for k in "${KEYS[@]}"; do
