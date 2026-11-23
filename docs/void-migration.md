@@ -186,6 +186,9 @@ startBlocked, blockReason, daily, week
 | `PUT /live-status` | ライブ状況を書く。`updated_at` はサーバーが入れる。`{ serverTime }` を返す。 |
 | `POST /live-status/offline` | 正常終了とログアウトで、オフラインを明示する。最後の本文は残し、`phase` だけ `offline` にする。`204`。 |
 | `POST /import` | 初回ログインで、ローカルのデータを取り込む。下記。 |
+| `GET /characters/{key}` | 完全版のキャラクターの画像。[demo-edition.md](demo-edition.md) |
+
+`/sync` と `/import` の応答の `edition`、`charactersVersion` と、デモ版の `/evolve` の `403` は [demo-edition.md](demo-edition.md) に書く。
 
 ### 形
 

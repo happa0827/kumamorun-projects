@@ -1,13 +1,40 @@
 // アカウントのデータの読み書き。アプリ向け API とサイトの両方から使う。
 import { daily, liveStatus, progress, settings } from "@schema";
 import { and, db, desc, eq, notInArray } from "void/db";
+import { readEdition } from "./edition";
 import { HISTORY_DAYS, LIVE_STALE_MS, type LiveStatusBody } from "./shapes";
 
 type DayRow = { date: string; plays: number; failures: number };
 
-/** GET /sync の中身。daily は最新の日付の記録、history は直近7日。 */
+/**
+ * GET /sync の中身。daily は最新の日付の記録、history は直近7日。
+ * edition と charactersVersion はデモ版と完全版（docs/demo-edition.md、src/server/edition.ts）。
+ */
 export async function readSync(accountId: string) {
-  const [settingsRows, dayRows, progressRows] = await db.batch([
+  const [[settingsRows, dayRows, progressRows], edition] = await Promise.all([
+    readRows(accountId),
+    readEdition(accountId),
+  ]);
+
+  const history: Record<string, { plays: number; failures: number }> = {};
+  for (const row of dayRows as DayRow[])
+    history[row.date] = { plays: row.plays, failures: row.failures };
+
+  return {
+    restrictions: settingsRows[0]
+      ? (JSON.parse(settingsRows[0].json) as Record<string, unknown>)
+      : null,
+    daily: (dayRows[0] as DayRow | undefined) ?? null,
+    history,
+    stage: progressRows[0]?.stage ?? 0,
+    flowers: progressRows[0]?.flowers ?? 0,
+    ...edition,
+    serverTime: Date.now(),
+  };
+}
+
+function readRows(accountId: string) {
+  return db.batch([
     db
       .select({ json: settings.restrictionsJson })
       .from(settings)
@@ -23,21 +50,6 @@ export async function readSync(accountId: string) {
       .from(progress)
       .where(eq(progress.accountId, accountId)),
   ]);
-
-  const history: Record<string, { plays: number; failures: number }> = {};
-  for (const row of dayRows as DayRow[])
-    history[row.date] = { plays: row.plays, failures: row.failures };
-
-  return {
-    restrictions: settingsRows[0]
-      ? (JSON.parse(settingsRows[0].json) as Record<string, unknown>)
-      : null,
-    daily: (dayRows[0] as DayRow | undefined) ?? null,
-    history,
-    stage: progressRows[0]?.stage ?? 0,
-    flowers: progressRows[0]?.flowers ?? 0,
-    serverTime: Date.now(),
-  };
 }
 
 /** daily と history をまとめ、日付ごとの行に直す。同じ日付は daily を優先する。 */

@@ -193,6 +193,17 @@ export const contactMessages = sqliteTable(
   ],
 );
 
+/**
+ * 完全版の承認（docs/demo-edition.md）。アカウントにつき0か1行。行があれば完全版、なければデモ版。
+ * approved_by は承認した管理者の user.id。公開の時点の既存アカウントをマイグレーションで入れた行は NULL。
+ */
+export const approvals = sqliteTable("approvals", {
+  accountId: text("account_id").primaryKey(),
+  approvedAt: integer("approved_at").notNull(),
+  approvedBy: text("approved_by"),
+  note: text("note"),
+});
+
 /** ライブ状況。アカウントにつき1行。updated_at はサーバーが入れる。 */
 export const liveStatus = sqliteTable("live_status", {
   accountId: text("account_id").primaryKey(),

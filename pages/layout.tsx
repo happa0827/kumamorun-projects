@@ -6,7 +6,7 @@ import "@/components/arc/foundation.css";
 import "./app.css";
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { signedIn, kind, name, image } = useShared();
+  const { signedIn, kind, name, image, admin } = useShared();
   return (
     <div className="shell">
       <header className="site-header">
@@ -20,6 +20,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <Link href="/">状況</Link>
               <Link href="/shop">ショップ</Link>
               {kind === "parent" && <Link href="/family">家族</Link>}
+              {admin && <Link href="/admin">管理</Link>}
               <Link href="/settings" activeMatch="prefix">
                 設定
               </Link>

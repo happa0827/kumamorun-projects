@@ -11,4 +11,7 @@ export default defineEnv({
   // 開発では、なければ Cloudflare のテスト用のキー（必ず通る）を使う。本番では両方そろうまでお問い合わせを受け付けない。
   TURNSTILE_SITE_KEY: string().optional(),
   TURNSTILE_SECRET_KEY: string().optional(),
+  // 管理者（/admin で完全版を承認し、キャラクターの画像を置く。src/server/admin.ts）。
+  // account_id（user.id）か、確認済みのメールアドレスを、カンマで区切って並べる。なければ誰も管理者にならない。
+  ADMINS: string().optional(),
 });

@@ -31,6 +31,9 @@ signup() {
   expect 200 "$email で登録" -c "$jar" -b "$jar" "${H[@]}" -X POST "$B/api/auth/sign-in/email-otp" -d "{\"email\":\"$email\",\"otp\":\"$otp\"}"
 }
 
+# approve_db <ID>  ローカルの D1 で完全版にする（管理の画面を通さない）
+approve_db() { vp exec void db execute "INSERT OR IGNORE INTO approvals (account_id, approved_at, note) VALUES ('$1', 0, 'smoke')" >/dev/null 2>&1; }
+
 # 招待コードを試した回数は IP ごとにも数える。ローカルの void dev も cf-connecting-ip（127.0.0.1）を付けるので、
 # 1時間のうちに何度も流すと前の回の分が残って上限に届く。毎回、ローカルの D1 の IP の分を消してから始める。
 vp exec void db execute "DELETE FROM rate_limits WHERE key LIKE 'invite:ip:%'" >/dev/null 2>&1 \
@@ -84,6 +87,25 @@ expect 200 "交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$
 TOKEN=$(jq -r .token <<<"$BODY")
 expect 401 "同じコードの2回目" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$CODE\",\"deviceName\":\"SMOKE-PC\"}"
 expect 422 "形が不正な交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d '{"code":""}'
+
+echo "== デモ版と完全版（docs/demo-edition.md）"
+ME=$(curl -s -b "$JAR" "$B/api/auth/get-session" | jq -r .user.id)
+eapi 200 "新しいアカウントの同期" GET /sync
+check "デモ版、画像の版なし" '.edition == "demo" and .charactersVersion == null'
+eapi 403 "デモ版の進化" POST /evolve -d '{"expectedStage":0,"nextStage":1,"flowersToAdd":0}'
+check "demo_edition" '.error == "demo_edition"'
+eapi 403 "デモ版は画像を受け取れない" GET /characters/stage0
+eapi 404 "知らない画像の key" GET /characters/stage9
+expect 401 "トークンなしの画像" "$B/api/app/v1/characters/stage0"
+expect 200 "デモ版の状況ページ" -b "$JAR" "$B/"
+if grep -q '承認を待っています' <<<"$BODY"; then echo "ok      状況ページに「承認を待っています」が出る"; else echo "NG      状況ページに「承認を待っています」が出ない"; FAIL=$((FAIL+1)); fi
+expect 404 "管理者でなければ管理の画面はない" -b "$JAR" "$B/admin"
+expect 404 "管理者でなければ承認できない" -b "$JAR" "${H[@]}" -X PUT "$B/api/admin/approvals/$ME"
+expect 401 "ログインなしの承認" "${H[@]}" -X PUT "$B/api/admin/approvals/$ME"
+# 以降の試験（進化など）は完全版で流す。承認はローカルの D1 に行を入れる（管理の画面の試験は最後）
+approve_db "$ME"
+eapi 200 "承認したあとの同期" GET /sync
+check "完全版" '.edition == "full"'
 
 echo "== 取り込みと同期"
 eapi 200 "空のアカウントの同期" GET /sync
@@ -189,6 +211,7 @@ expect 200 "親が子供のアプリのコードを発行" -b "$PJAR" "${H[@]}" 
 CCODE=$(jq -r .url <<<"$BODY" | sed 's/.*code=//')
 expect 200 "子供の端末の交換" "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$CCODE\",\"deviceName\":\"CHILD-PC\"}"
 CTOKEN=$(jq -r .token <<<"$BODY")
+approve_db "$CHILD"
 expect 200 "子供のアプリで取り込み（花 1000000 を送る）" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X POST "$B/api/app/v1/import" -d "$(jq -c '.flowers = 1000000' <<<"$IMPORT")"
 check "子供の花は取り込まない（0）。段階は取り込む" '.flowers == 0 and .stage == 4'
 expect 200 "子供の成長 4→5（今日の1回目）" "${H[@]}" -H "Authorization: Bearer $CTOKEN" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":4,"nextStage":5,"flowersToAdd":0}'
@@ -361,6 +384,7 @@ signup "$NJAR" "notify-$EMAIL"
 curl -s -o /dev/null -b "$NJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"adult"}'
 expect 200 "大人のときの通知先" -b "$NJAR" "${H[@]}" -X PUT "$B/api/shop/notify-emails" -d '{"emails":["own-choice@example.com"]}'
 NID=$(curl -s -b "$NJAR" "$B/api/auth/get-session" | jq -r .user.id)
+approve_db "$NID"
 NCODE=$(curl -s -b "$NJAR" "${H[@]}" -X POST "$B/api/login-code" | jq -r .url | sed 's/.*code=//')
 NTOKEN=$(curl -s "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$NCODE\",\"deviceName\":\"NOTIFY-PC\"}" | jq -r .token)
 # 「種類ができる前」の利用者に戻す（ローカルの D1 だけ）
@@ -426,6 +450,72 @@ if grep -q '親のアカウントのまま' <<<"$BODY"; then echo "ok      親�
 LDEV=$(grep -o 'data-device-id="[^"]*" data-device-name="OLD-PC"' <<<"$BODY" | cut -d'"' -f2)
 expect 204 "親の設定から失効" -b "$LJAR" "${H[@]}" -X DELETE "$B/api/devices/$LDEV"
 expect 401 "失効した端末" -H "Authorization: Bearer $LTOKEN" "$B/api/app/v1/sync"
+
+echo "== 管理（完全版の承認とキャラクターの画像）"
+# 管理者のアドレスを dev の ADMINS に入れて起動したときだけ流す:
+#   ADMINS=smoke-admin@example.com vp dev
+#   ADMIN_EMAIL=smoke-admin@example.com bash scripts/smoke-api.sh
+if [ -n "${ADMIN_EMAIL:-}" ]; then
+  MJAR=$(mktemp); DJAR=$(mktemp); TINY=$(mktemp)
+  trap 'rm -f "$JAR" "$PJAR" "$CJAR" "$GJAR" "$QJAR" "$XJAR" "$AJAR" "$NJAR" "$FJAR" "$YJAR" "$LJAR" "$MJAR" "$DJAR" "$TINY"' EXIT
+  signup "$MJAR" "$ADMIN_EMAIL"
+  expect 200 "管理の画面" -b "$MJAR" "$B/admin"
+  # 新しいアカウント（デモ版）を1つ作り、アプリにログインさせる
+  signup "$DJAR" "demo-$EMAIL"
+  curl -s -o /dev/null -b "$DJAR" "${H[@]}" -X POST "$B/api/account/kind" -d '{"kind":"adult"}'
+  DID=$(curl -s -b "$DJAR" "$B/api/auth/get-session" | jq -r .user.id)
+  DCODE=$(curl -s -b "$DJAR" "${H[@]}" -X POST "$B/api/login-code" | jq -r .url | sed 's/.*code=//')
+  DTOKEN=$(curl -s "${H[@]}" -X POST "$B/api/app/v1/exchange" -d "{\"code\":\"$DCODE\",\"deviceName\":\"DEMO-PC\"}" | jq -r .token)
+  D=(-H "Authorization: Bearer $DTOKEN")
+  expect 200 "管理の画面に新しいアカウントが出る" -b "$MJAR" "$B/admin"
+  if grep -q "data-account-id=\"$DID\"" <<<"$BODY"; then echo "ok      一覧にある"; else echo "NG      一覧にない"; FAIL=$((FAIL+1)); fi
+  expect 404 "ないアカウントは承認できない" -b "$MJAR" "${H[@]}" -X PUT "$B/api/admin/approvals/no-such-account"
+  expect 204 "承認する" -b "$MJAR" "${H[@]}" -X PUT "$B/api/admin/approvals/$DID"
+  expect 204 "2回目の承認も 204" -b "$MJAR" "${H[@]}" -X PUT "$B/api/admin/approvals/$DID"
+  expect 200 "承認したあとの同期" "${D[@]}" "$B/api/app/v1/sync"
+  check "完全版" '.edition == "full"'
+  expect 200 "完全版の状況ページ" -b "$DJAR" "$B/"
+  if grep -q '承認されています' <<<"$BODY"; then echo "ok      状況ページに「承認されています」が出る"; else echo "NG      状況ページに完全版と出ない"; FAIL=$((FAIL+1)); fi
+  IMG=(-b "$MJAR" -H "Origin: $B" -H 'Content-Type: image/png')
+  expect 415 "PNG でない画像は置けない" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage0" --data-binary $'\xff\xd8\xff\xe0jpeg'
+  expect 404 "知らない key には置けない" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage9" --data-binary $'\x89PNG\r\n\x1a\n'
+  head -c 2097153 /dev/zero >"$TINY"
+  expect 413 "2MB を超える画像は置けない" "${IMG[@]}" -X PUT "$B/api/admin/characters/stage0" --data-binary "@$TINY"
+  expect 404 "管理者でなければ画像を置けない" -b "$DJAR" -H "Origin: $B" -H 'Content-Type: image/png' -X PUT "$B/api/admin/characters/stage0" --data-binary $'\x89PNG\r\n\x1a\n'
+  # 画像はローカルの KV に残るので、毎回中身を変えて置き直す
+  KEYS=(stage0 stage1 stage2 stage3 stage4 stage5 dandelion peony blueSpiderLily nightCherry)
+  STAMP=$(date +%s%N)
+  for k in "${KEYS[@]:0:9}"; do
+    printf '\x89PNG\r\n\x1a\n%s-%s' "$k" "$STAMP" >"$TINY"
+    curl -s -o /dev/null "${IMG[@]}" -X PUT "$B/api/admin/characters/$k" --data-binary "@$TINY"
+  done
+  expect 200 "置いた画像を管理の画面で確かめる" -b "$MJAR" "$B/api/admin/characters/stage3"
+  if grep -q "stage3-$STAMP" <<<"$BODY"; then echo "ok      置いた中身が返る"; else echo "NG      置いた中身と違う"; FAIL=$((FAIL+1)); fi
+  BEFORE=$(curl -s "${D[@]}" "$B/api/app/v1/sync" | jq -r .charactersVersion)
+  printf '\x89PNG\r\n\x1a\n%s-%s' nightCherry "$STAMP" >"$TINY"
+  expect 204 "10枚目を置く" "${IMG[@]}" -X PUT "$B/api/admin/characters/nightCherry" --data-binary "@$TINY"
+  expect 404 "管理者でなければ公開できない" -b "$DJAR" "${H[@]}" -X POST "$B/api/admin/publish-characters"
+  expect 200 "公開する" -b "$MJAR" "${H[@]}" -X POST "$B/api/admin/publish-characters"
+  VERSION=$(jq -r .version <<<"$BODY")
+  if [[ "$VERSION" =~ ^[A-Za-z0-9._-]{1,64}$ ]] && [ "$VERSION" != "$BEFORE" ]; then echo "ok      版が変わり、約束の形（$VERSION）"; else echo "NG      版が「$VERSION」（前は $BEFORE）"; FAIL=$((FAIL+1)); fi
+  expect 200 "公開したあとの同期" "${D[@]}" "$B/api/app/v1/sync"
+  check "charactersVersion が公開した版" ".charactersVersion == \"$VERSION\""
+  for k in "${KEYS[@]}"; do
+    out=$(curl -s -D - -o "$TINY" "${D[@]}" "$B/api/app/v1/characters/$k" | tr -d '\r')
+    if grep -q '^HTTP/[0-9.]* 200' <<<"$out" && grep -qi '^content-type: image/png' <<<"$out" \
+      && grep -qi '^cache-control: private, no-store' <<<"$out" && grep -q "$k-$STAMP" "$TINY"; then :; else
+      echo "NG      完全版の端末が $k を受け取れない: $(head -1 <<<"$out")"; FAIL=$((FAIL+1)); fi
+  done
+  echo "ok      完全版の端末が10枚を受け取る（PNG、no-store）"
+  expect 204 "承認を取り消す" -b "$MJAR" "${H[@]}" -X DELETE "$B/api/admin/approvals/$DID"
+  expect 200 "取り消したあとの同期" "${D[@]}" "$B/api/app/v1/sync"
+  check "デモ版に戻り、版は null" '.edition == "demo" and .charactersVersion == null'
+  expect 403 "取り消したら画像を受け取れない" "${D[@]}" "$B/api/app/v1/characters/stage0"
+  expect 403 "取り消したら進化できない" "${H[@]}" "${D[@]}" -X POST "$B/api/app/v1/evolve" -d '{"expectedStage":0,"nextStage":1,"flowersToAdd":0}'
+  expect 204 "デモ版でも設定は受け付ける" "${H[@]}" "${D[@]}" -X PUT "$B/api/app/v1/settings" -d '{"restrictions":{"weekday":{"endTime":"19:00"}}}'
+else
+  echo "（ADMIN_EMAIL がないので飛ばす）"
+fi
 
 echo "== ログアウト"
 eapi 204 "ログアウト" POST /logout
