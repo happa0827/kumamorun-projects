@@ -14,6 +14,19 @@ export function remainingNow(s: LiveStatus | null, now = Date.now()): number | n
   return s.remainingSec ?? null;
 }
 
+/**
+ * 昼休憩の開始が遊びの終わりより先に来るときに、アプリが送る label。
+ * アプリの src-tauri/src/domain/engine/live_status.rs の
+ * `status.label = format!("遊び（{until}まで）")` と合わせてある。変えるときは両方を直す。
+ */
+const PLAY_UNTIL_LUNCH_LABEL = "遊び（昼休憩まで）";
+
+/** 「残り」の見出し。昼休憩までの残りを数えている間だけ、何までかを足す。 */
+export function remainingHeading(s: LiveStatus | null): string {
+  if (s?.phase === "play" && s.label === PLAY_UNTIL_LUNCH_LABEL) return "残り（昼休憩まで）";
+  return "残り";
+}
+
 export function formatRemaining(sec: number | null): string {
   if (sec == null) return "--:--";
   const clamped = Math.max(0, Math.floor(sec));

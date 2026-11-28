@@ -5,7 +5,13 @@ import { CircleCheck, CirclePause, CircleAlert, Clock } from "lucide-react";
 import { Alert } from "@/components/arc/alert/alert";
 import { Badge } from "@/components/arc/badge/badge";
 import { EmptyState } from "@/components/arc/empty-state/empty-state";
-import { formatAgo, formatRemaining, remainingNow, type StatusResponse } from "../live-status";
+import {
+  formatAgo,
+  formatRemaining,
+  remainingHeading,
+  remainingNow,
+  type StatusResponse,
+} from "../live-status";
 
 const POLL_MS = 10_000;
 
@@ -85,7 +91,7 @@ export function StatusView({
 
         <dl className="facts">
           <div className="fact">
-            <dt>残り</dt>
+            <dt>{stopped ? "残り" : remainingHeading(status)}</dt>
             <dd className="mono remaining">
               {formatRemaining(stopped ? null : remainingNow(status, now))}
             </dd>
